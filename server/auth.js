@@ -1,18 +1,23 @@
-// Single shared-secret auth: this is a one-teacher tool, not a multi-user
-// SaaS, so a passcode checked as a Bearer token is enough to stop randoms
-// on the internet from emailing your students or burning your OpenAI
-// credits on /api/send and /api/translate. Set STUDIO_PASSCODE in
-// server/.env to turn it on.
-function requireAuth(req, res, next) {
-  const passcode = process.env.STUDIO_PASSCODE;
-  if (!passcode) return next(); // dev mode: no passcode configured, wide open
+// Single-teacher account auth: a signed, stateless session cookie
+// (cookie-session, keyed by SESSION_SECRET) rather than a server-side
+// session store — there's only ever one account today, so there's nothing
+// to revoke server-side yet. See db.js for the teachers table and
+// server.js for the /api/login, /api/logout, /api/me routes that set/read
+// req.session.
+const bcrypt = require("bcryptjs");
+const db = require("./db");
 
-  const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-  if (token !== passcode) {
-    return res.status(401).json({ error: "unauthorized — set the studio passcode in Brand Kit / send it as a Bearer token" });
-  }
-  next();
+function requireAuth(req, res, next) {
+  if (req.session && req.session.teacherId) return next();
+  return res.status(401).json({ error: "not logged in" });
 }
 
-module.exports = { requireAuth };
+function verifyLogin(email, password) {
+  if (!email || !password) return null;
+  const teacher = db.prepare("SELECT * FROM teachers WHERE email = ?").get(email);
+  if (!teacher) return null;
+  if (!bcrypt.compareSync(password, teacher.password_hash)) return null;
+  return teacher;
+}
+
+module.exports = { requireAuth, verifyLogin };

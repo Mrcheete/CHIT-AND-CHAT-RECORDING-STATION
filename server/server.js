@@ -9,7 +9,7 @@
 //   - translation (needs a server-side API key — never put that in browser JS)
 require("dotenv").config();
 const express = require("express");
-const cors = require("cors");
+const cookieSession = require("cookie-session");
 const multer = require("multer");
 const rateLimit = require("express-rate-limit");
 const fs = require("fs");
@@ -22,26 +22,43 @@ const FormData = require("form-data");
 const fetch = require("node-fetch");
 
 const db = require("./db");
-const { requireAuth } = require("./auth");
+const { requireAuth, verifyLogin } = require("./auth");
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PORT = process.env.PORT || 8787;
-const UPLOAD_DIR = path.join(__dirname, "uploads");
+const PUBLIC_DIR = path.join(__dirname, "..", "public");
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-if (!process.env.STUDIO_PASSCODE) {
+let sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret) {
+  sessionSecret = crypto.randomBytes(32).toString("hex");
   console.warn(
-    "⚠️  STUDIO_PASSCODE is not set — every API route is open to anyone who can reach this server. " +
-      "Fine for local-only use; set it in server/.env before exposing this server to the internet."
+    "⚠️  SESSION_SECRET is not set — using a random secret generated for this run, which logs everyone out " +
+      "every time the server restarts. Set SESSION_SECRET in server/.env before deploying."
   );
 }
 
 const app = express();
 app.disable("x-powered-by");
-app.use(cors()); // the static front end is opened from file:// or a plain localhost port — allow any origin
 app.use(express.json());
+app.use(
+  cookieSession({
+    name: "cc_session",
+    keys: [sessionSecret],
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  })
+);
+// Same-origin now — the front end is served straight from this server, not
+// opened separately from file:// or a different localhost port.
+app.use(express.static(PUBLIC_DIR));
 // Range requests (video scrubbing) are handled automatically by express.static.
+// Public and unauthenticated on purpose — this is what makes share links usable.
 app.use("/share", express.static(UPLOAD_DIR, { maxAge: "1d" }));
 
 const generalLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
@@ -86,8 +103,32 @@ const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next
 
 // ------------------------------------------------------------------ health
 app.get("/api/health", (req, res) =>
-  res.json({ ok: true, time: Date.now(), authRequired: Boolean(process.env.STUDIO_PASSCODE), translateConfigured: Boolean(process.env.OPENAI_API_KEY), emailConfigured: Boolean(process.env.SMTP_HOST) })
+  res.json({ ok: true, time: Date.now(), translateConfigured: Boolean(process.env.OPENAI_API_KEY), emailConfigured: Boolean(process.env.SMTP_HOST) })
 );
+
+// -------------------------------------------------------------------- auth
+app.post(
+  "/api/login",
+  asyncRoute((req, res) => {
+    const { email, password } = req.body;
+    const teacher = verifyLogin(email, password);
+    if (!teacher) return res.status(401).json({ error: "invalid email or password" });
+    req.session.teacherId = teacher.id;
+    res.json({ ok: true, email: teacher.email });
+  })
+);
+
+app.post("/api/logout", (req, res) => {
+  req.session = null;
+  res.json({ ok: true });
+});
+
+app.get("/api/me", (req, res) => {
+  if (!req.session || !req.session.teacherId) return res.status(401).json({ error: "not logged in" });
+  const teacher = db.prepare("SELECT id, email FROM teachers WHERE id = ?").get(req.session.teacherId);
+  if (!teacher) return res.status(401).json({ error: "not logged in" });
+  res.json(teacher);
+});
 
 // --------------------------------------------------------------- students
 app.get(
@@ -361,7 +402,8 @@ async function synthesizeSpeech(text, outPath, apiKey) {
 }
 
 // ------------------------------------------------------------- error/404
-app.use((req, res) => res.status(404).json({ error: "not found" }));
+app.use("/api", (req, res) => res.status(404).json({ error: "not found" }));
+app.use((req, res) => res.status(404).send("Not found"));
 app.use((err, req, res, next) => {
   console.error(err);
   if (err instanceof multer.MulterError) return res.status(400).json({ error: err.message });

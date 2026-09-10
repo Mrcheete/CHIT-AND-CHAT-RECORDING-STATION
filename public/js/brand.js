@@ -59,7 +59,7 @@ function renderHeader(activePage) {
         <img src="${brand.logo}" alt="${brand.name} logo" onerror="this.style.display='none'">
         ${brand.name}
       </a>
-      <nav>${links}</nav>
+      <nav>${links}<a href="#" data-logout>Log out</a></nav>
     </div>
   `;
 }
