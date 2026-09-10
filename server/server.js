@@ -422,6 +422,80 @@ app.post(
   })
 );
 
+// --------------------------------------------------------------------- trim
+// Cuts-only editing (the common "remove a mistake from a long lesson" case)
+// runs here instead of in the browser: the client already knows which
+// ranges to *keep* (it computes that from its own cut markers — see
+// keepSegments() in editor.js), so this just extracts and concats those
+// ranges with the same real ffmpeg already used for translation, instead of
+// pulling the whole recording back into the browser for ffmpeg.wasm.
+app.post(
+  "/api/recordings/:id/trim",
+  requireAuth,
+  expensiveLimiter,
+  asyncRoute(async (req, res) => {
+    const rec = db.prepare("SELECT * FROM recordings WHERE id = ?").get(req.params.id);
+    if (!rec) return res.status(404).json({ error: "not found" });
+    if (rec.status !== "finalized") return res.status(400).json({ error: "recording isn't finalized yet" });
+
+    const segments = Array.isArray(req.body.segments) ? req.body.segments : [];
+    const valid = segments.every(
+      (s) => Array.isArray(s) && s.length === 2 && typeof s[0] === "number" && typeof s[1] === "number" && s[1] > s[0]
+    );
+    if (!segments.length || !valid) {
+      return res.status(400).json({ error: "segments must be a non-empty array of [start, end] pairs with end > start" });
+    }
+
+    const sourcePath = path.join(UPLOAD_DIR, rec.file_path);
+    const workDir = path.join(UPLOAD_DIR, `_work_${crypto.randomUUID()}`);
+    fs.mkdirSync(workDir, { recursive: true });
+    try {
+      const segFiles = [];
+      for (let i = 0; i < segments.length; i++) {
+        const [s, e] = segments[i];
+        const segPath = path.join(workDir, `seg${i}.mp4`);
+        await new Promise((resolve, reject) => {
+          ffmpeg(sourcePath)
+            .setStartTime(s)
+            .duration(e - s)
+            .outputOptions(["-c:v libx264", "-preset ultrafast", "-crf 23", "-c:a aac"])
+            .save(segPath)
+            .on("end", resolve)
+            .on("error", reject);
+        });
+        segFiles.push(segPath);
+      }
+
+      const listPath = path.join(workDir, "list.txt");
+      fs.writeFileSync(listPath, segFiles.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n"));
+
+      const outFilename = `${crypto.randomUUID()}.mp4`;
+      const outPath = path.join(UPLOAD_DIR, outFilename);
+      await new Promise((resolve, reject) => {
+        ffmpeg()
+          .input(listPath)
+          .inputOptions(["-f concat", "-safe 0"])
+          .outputOptions(["-c copy"])
+          .save(outPath)
+          .on("end", resolve)
+          .on("error", reject);
+      });
+
+      const fileSize = fs.statSync(outPath).size;
+      const newDurationSec = Math.round(segments.reduce((sum, [s, e]) => sum + (e - s), 0));
+      const id = crypto.randomUUID();
+      const title = req.body.title || `${rec.title} (trimmed)`;
+      db.prepare(
+        "INSERT INTO recordings (id, title, type, duration_sec, mime_type, file_path, file_size, edited, status, created_at) VALUES (?, ?, ?, ?, 'video/mp4', ?, ?, 1, 'finalized', ?)"
+      ).run(id, title, rec.type, newDurationSec, outFilename, fileSize, Date.now());
+
+      res.status(201).json(toRecordingDTO(db.prepare("SELECT * FROM recordings WHERE id = ?").get(id)));
+    } finally {
+      fs.rm(workDir, { recursive: true, force: true }, () => {});
+    }
+  })
+);
+
 // -------------------------------------------------------------- translate
 app.post(
   "/api/translate",

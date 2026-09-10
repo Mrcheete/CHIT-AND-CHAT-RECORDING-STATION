@@ -122,6 +122,35 @@ function extFor(mimeType) {
 
 async function applyEditsAndRender() {
   const applyBtn = $("btn-apply");
+  const introId = $("intro-select").value;
+  const cutsOnly = cuts.length > 0 && !introId && !voiceoverBlob && !musicFile;
+
+  // Cuts alone don't need a browser-side ffmpeg.wasm pass at all — the
+  // server can extract and concat the kept ranges directly from its own
+  // stored copy, which is faster and doesn't require re-downloading the
+  // whole (possibly very long) recording into the browser first.
+  if (cutsOnly) {
+    applyBtn.disabled = true;
+    try {
+      const segments = keepSegments($("preview").duration, cuts);
+      if (!segments.length) throw new Error("those cuts remove the entire video");
+      CCBrand.toast("Trimming on the server…");
+      const saved = await CCApi.json(`/api/recordings/${currentRecording.id}/trim`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ segments, title: `${currentRecording.title} (trimmed)` }),
+      });
+      CCBrand.toast("Saved the trimmed video to your library.");
+      setTimeout(() => (window.location.href = `editor.html?id=${saved.id}`), 900);
+    } catch (err) {
+      console.error(err);
+      CCBrand.toast("Trim failed: " + err.message);
+    } finally {
+      applyBtn.disabled = false;
+    }
+    return;
+  }
+
   applyBtn.disabled = true;
   setProgress(0);
   try {
@@ -140,7 +169,6 @@ async function applyEditsAndRender() {
     }
 
     // Intro clip, prepended
-    const introId = $("intro-select").value;
     if (introId) {
       const introRec = await CCApi.json(`/api/recordings/${introId}`);
       const iExt = extFor(introRec.mimeType);
