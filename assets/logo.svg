@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Approximation of the Chit & Chat mascot mark, recreated in vector form.
+       For pixel-perfect branding, upload the real logo file via
+       Settings -> Brand Kit -> Logo instead of relying on this default. -->
+  <circle cx="32" cy="30" r="22" fill="#9B8FDE"/>
+  <path d="M32 30 L50 20 A22 22 0 0 1 50 40 Z" fill="#FAF9F7"/>
+  <path d="M14 38 A22 22 0 0 0 46 48 L40 54 L34 46 Z" fill="#7FDFC7"/>
+  <circle cx="24" cy="27" r="3" fill="#2B1B45"/>
+  <circle cx="35" cy="25" r="3" fill="#2B1B45"/>
+</svg>

@@ -1,14 +1,15 @@
 /* ============================================================
    Chit & Chat Recording Station — Brand Kit & Shared Layout
    Change the variables below to match your real brand colours
-   and swap assets/logo-placeholder.svg for your real logo.
+   and swap assets/logo.svg for your real logo (or upload one in
+   Settings -> Brand Kit, which overrides this without editing code).
    ============================================================ */
 
 :root {
-  --brand-primary: #ff6b6b;     /* coral — primary buttons, active states */
-  --brand-secondary: #4ecdc4;   /* teal — accents, links */
-  --brand-accent: #ffd166;      /* warm yellow — highlights */
-  --brand-ink: #1a1a2e;         /* dark text / header background */
+  --brand-primary: #9B8FDE;     /* lavender purple — primary buttons, active states */
+  --brand-secondary: #7FDFC7;   /* mint teal — accents, links */
+  --brand-accent: #FFAFC5;      /* soft pink — highlights */
+  --brand-ink: #2B1B45;         /* dark purple — text / header background */
   --brand-bg: #faf9f7;          /* page background */
   --brand-surface: #ffffff;     /* card / panel background */
   --brand-border: #e7e3dd;

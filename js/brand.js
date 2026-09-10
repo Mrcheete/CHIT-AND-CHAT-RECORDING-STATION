@@ -4,11 +4,11 @@ const BRAND_KEY = "cc_brand_kit_v1";
 
 const DEFAULT_BRAND = {
   name: "Chit & Chat",
-  primary: "#ff6b6b",
-  secondary: "#4ecdc4",
-  accent: "#ffd166",
-  ink: "#1a1a2e",
-  logo: "assets/logo-placeholder.svg",
+  primary: "#9B8FDE",   // lavender purple, from the mascot logo
+  secondary: "#7FDFC7", // mint teal, from the mascot logo
+  accent: "#FFAFC5",    // soft pink, complements the lavender/mint pair
+  ink: "#2B1B45",        // dark purple, from the logo wordmark
+  logo: "assets/logo.svg",
 };
 
 function loadBrand() {
