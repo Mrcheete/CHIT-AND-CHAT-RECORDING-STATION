@@ -11,12 +11,13 @@ document.addEventListener("DOMContentLoaded", () => {
   whiteboardCanvasEl.height = stageEl.clientHeight;
 
   const wb = createWhiteboard(whiteboardCanvasEl);
-  // Fabric renders across two stacked <canvas> elements; the "upper-canvas"
-  // holds the actual live composite (drawings + selection UI), so that's
-  // what the recorder should read frames from.
-  const fabricRenderTarget = document.querySelector("#stage .upper-canvas") || whiteboardCanvasEl;
+  // Fabric renders across two stacked <canvas> elements: the "lower-canvas"
+  // holds the actual persisted content (finished strokes, text, images) —
+  // that's what the recorder should read frames from. The "upper-canvas" is
+  // only used transiently for selection handles and the in-progress stroke
+  // while the mouse is down, and is empty the rest of the time.
   const rec = createRecorder({
-    whiteboardCanvasEl: fabricRenderTarget,
+    whiteboardCanvasEl: wb.canvas.lowerCanvasEl,
     outputCanvasEl,
     videoPreviewEl: camPreviewEl,
   });
