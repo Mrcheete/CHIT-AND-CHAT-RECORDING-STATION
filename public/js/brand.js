@@ -4,10 +4,10 @@ const BRAND_KEY = "cc_brand_kit_v1";
 
 const DEFAULT_BRAND = {
   name: "Chit & Chat",
-  primary: "#9B8FDE",   // lavender purple, from the mascot logo
-  secondary: "#7FDFC7", // mint teal, from the mascot logo
-  accent: "#FFAFC5",    // soft pink, complements the lavender/mint pair
-  ink: "#2B1B45",        // dark purple, from the logo wordmark
+  primary: "#5642a0",   // brand-600 — same purple as the School Manager / Connect apps
+  secondary: "#6fd6c6", // mint-500 — same mint accent used across the other apps
+  accent: "#a99ae6",    // brand-300 — a lighter purple for highlights
+  ink: "#1a1433",        // brand-900 — the same dark ink used site-wide
   logo: "assets/logo.svg",
 };
 

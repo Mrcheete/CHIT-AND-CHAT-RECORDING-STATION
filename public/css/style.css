@@ -6,10 +6,10 @@
    ============================================================ */
 
 :root {
-  --brand-primary: #9B8FDE;     /* lavender purple — primary buttons, active states */
-  --brand-secondary: #7FDFC7;   /* mint teal — accents, links */
-  --brand-accent: #FFAFC5;      /* soft pink — highlights */
-  --brand-ink: #2B1B45;         /* dark purple — text / header background */
+  --brand-primary: #5642a0;     /* brand-600 — primary buttons, active states (same as School Manager / Connect) */
+  --brand-secondary: #6fd6c6;   /* mint-500 — accents, links */
+  --brand-accent: #a99ae6;      /* brand-300 — highlights */
+  --brand-ink: #1a1433;         /* brand-900 — text / header background */
   --brand-bg: #faf9f7;          /* page background */
   --brand-surface: #ffffff;     /* card / panel background */
   --brand-border: #e7e3dd;
