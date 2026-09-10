@@ -70,7 +70,11 @@ const generalLimiter = rateLimit({
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => CHUNK_ROUTE_RE.test(req.path),
+  // req.path here is relative to the "/api" mount point (Express strips the
+  // prefix inside app.use("/api", ...)), so match against req.originalUrl —
+  // which keeps the full path — instead of building the regex around a path
+  // that would never actually appear in req.path.
+  skip: (req) => CHUNK_ROUTE_RE.test(req.originalUrl.split("?")[0]),
 });
 const expensiveLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 const chunkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 3000, standardHeaders: true, legacyHeaders: false });
