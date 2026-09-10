@@ -46,4 +46,28 @@ document.addEventListener("DOMContentLoaded", () => {
     CCBrand.renderHeader("settings.html");
     CCBrand.toast("Brand kit reset to default.");
   });
+
+  // ---- backend connection ----
+  document.getElementById("b-api-base").value = localStorage.getItem("cc_api_base") || "http://localhost:8787";
+  document.getElementById("b-passcode").value = localStorage.getItem("cc_passcode") || "";
+
+  document.getElementById("btn-save-backend").addEventListener("click", async () => {
+    const base = document.getElementById("b-api-base").value.trim().replace(/\/$/, "") || "http://localhost:8787";
+    const passcode = document.getElementById("b-passcode").value.trim();
+    localStorage.setItem("cc_api_base", base);
+    localStorage.setItem("cc_passcode", passcode);
+
+    const statusEl = document.getElementById("backend-status");
+    statusEl.style.display = "inline-block";
+    statusEl.textContent = "Checking…";
+    try {
+      const res = await fetch(`${base}/api/health`, { headers: passcode ? { Authorization: `Bearer ${passcode}` } : {} });
+      const json = await res.json();
+      statusEl.textContent = json.ok ? "Connected ✓" : "Server reachable but reported an error";
+      CCBrand.toast("Backend connection saved — reload other open tabs to pick it up.");
+    } catch (err) {
+      statusEl.textContent = "Not reachable";
+      CCBrand.toast("Couldn't reach that server: " + err.message);
+    }
+  });
 });

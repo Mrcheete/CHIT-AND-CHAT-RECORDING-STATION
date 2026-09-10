@@ -44,8 +44,24 @@
       <button class="btn btn-primary" id="btn-save-brand">Save brand kit</button>
       <button class="btn btn-outline" id="btn-reset-brand">Reset to default</button>
     </div>
+
+    <div class="card" style="max-width:480px; margin-top:20px">
+      <h3 style="margin-top:0">Backend connection</h3>
+      <p class="script-note">Only needed for the cloud library, sending, and translation. Leave blank while working purely in the browser.</p>
+      <div class="field">
+        <label>Server address</label>
+        <input type="text" id="b-api-base" placeholder="http://localhost:8787">
+      </div>
+      <div class="field">
+        <label>Studio passcode</label>
+        <input type="text" id="b-passcode" placeholder="matches STUDIO_PASSCODE in server/.env">
+      </div>
+      <button class="btn btn-outline" id="btn-save-backend">Save connection</button>
+      <span id="backend-status" class="badge" style="display:none; margin-left:8px"></span>
+    </div>
   </div>
   <script src="js/brand.js"></script>
+  <script src="js/api.js"></script>
   <script src="js/settings.js"></script>
 </body>
 </html>

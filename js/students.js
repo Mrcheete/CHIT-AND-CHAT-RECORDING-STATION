@@ -1,5 +1,4 @@
 const STUDENTS_KEY = "cc_students_v1";
-const API_BASE = "http://localhost:8787";
 
 function loadLocalRoster() {
   try {
@@ -14,9 +13,7 @@ function saveLocalRoster(list) {
 
 async function fetchRoster() {
   try {
-    const res = await fetch(`${API_BASE}/api/students`);
-    if (!res.ok) throw new Error();
-    return await res.json();
+    return await CCApi.json("/api/students");
   } catch {
     return loadLocalRoster();
   }
@@ -24,13 +21,11 @@ async function fetchRoster() {
 
 async function addStudent(student) {
   try {
-    const res = await fetch(`${API_BASE}/api/students`, {
+    return await CCApi.json("/api/students", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(student),
     });
-    if (!res.ok) throw new Error();
-    return await res.json();
   } catch {
     const list = loadLocalRoster();
     const withId = { ...student, id: Date.now() };
@@ -68,7 +63,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const sendId = params.get("send");
   if (sendId) {
     document.getElementById("send-panel").style.display = "block";
-    const rec = await CCDB.getRecording(Number(sendId));
+    const isCloud = sendId.startsWith("cloud:");
+    const cloudId = isCloud ? sendId.slice("cloud:".length) : null;
+    const rec = isCloud ? await CCApi.json(`/api/recordings/${cloudId}`).catch(() => null) : await CCDB.getRecording(Number(sendId));
     document.getElementById("send-title").textContent = `Sending "${rec ? rec.title : "video"}"`;
 
     document.getElementById("btn-do-send").addEventListener("click", async () => {
@@ -78,12 +75,22 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       try {
         const form = new FormData();
-        form.append("video", rec.blob, `${rec.title}.${rec.mimeType.includes("mp4") ? "mp4" : "webm"}`);
+        if (isCloud) {
+          // Already stored server-side — reference it instead of re-uploading.
+          form.append("recordingId", cloudId);
+        } else {
+          form.append("video", rec.blob, `${rec.title}.${rec.mimeType.includes("mp4") ? "mp4" : "webm"}`);
+        }
         form.append("title", rec.title);
         form.append("students", JSON.stringify(chosen));
-        const res = await fetch(`${API_BASE}/api/send`, { method: "POST", body: form });
+        const res = await CCApi.fetch("/api/send", { method: "POST", body: form });
         if (!res.ok) throw new Error(await res.text());
-        CCBrand.toast(`Sent "${rec.title}" to ${chosen.length} student(s).`);
+        const result = await res.json();
+        CCBrand.toast(
+          result.emailed
+            ? `Sent "${rec.title}" to ${chosen.length} student(s).`
+            : `Saved a share link (email isn't configured on the server yet): ${result.shareUrl}`
+        );
       } catch (err) {
         CCBrand.toast("Backend not running — download the video from the Library and share it manually. (" + err.message + ")");
       }

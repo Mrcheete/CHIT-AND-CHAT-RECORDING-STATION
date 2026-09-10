@@ -13,22 +13,52 @@ have: the whiteboard, recording, local editing (cuts/voice-over/music/intro),
 library, student roster, and brand kit — all working with **no backend at
 all**, storing everything in the browser's IndexedDB/localStorage.
 
-The **optional backend** (`server/`) adds three things that genuinely need a
-server: a roster that persists across devices, emailing/share-links when you
+The **optional backend** (`server/`) adds everything that genuinely needs a
+server: a recordings library and student roster that persist across
+devices/browsers (SQLite, not a flat file), emailing/share-links when you
 send a lesson, and translation (which needs a secret API key that must never
 live in browser JavaScript). To run it:
 
 ```
 cd server
-cp .env.example .env   # fill in whichever keys you have
+cp .env.example .env   # fill in whichever keys you have — at minimum, set STUDIO_PASSCODE
 npm install
 npm start               # listens on http://localhost:8787
 ```
+
+Then open **Brand Kit** (`settings.html`) in the front end, enter the server
+address (default `http://localhost:8787`) and the same passcode, and save —
+every page picks it up from there.
 
 Every backend feature degrades gracefully without its key: student adds and
 "send" still work locally / with a plain share link if SMTP isn't
 configured; translate tells you exactly what's missing if `OPENAI_API_KEY`
 isn't set.
+
+### Backend security
+
+The server protects every `/api/*` route with a shared passcode
+(`STUDIO_PASSCODE` in `.env`, sent as `Authorization: Bearer <passcode>`) —
+without it, **anyone who can reach the server can read/delete your library,
+email your students, or spend your OpenAI credits**, so set it before this
+server is reachable from anywhere but your own machine. `/api/health` stays
+public (so the front end can show a connection status) and `/share/*` links
+are intentionally public too — that's what makes them usable as links you
+send students. Uploads are capped at 5GB/file (effectively unbounded — the
+real ceiling is your disk), and `/api/send` + `/api/translate` are
+rate-limited (20 requests/15 min per IP) since both cost real money or send
+real email.
+
+### Backend API
+
+| Route | Auth | What |
+|---|---|---|
+| `GET /api/health` | — | Status + which features are configured |
+| `GET/POST/DELETE /api/students` | ✓ | Roster CRUD |
+| `GET/POST/PATCH/DELETE /api/recordings` | ✓ | Cloud library CRUD (`POST` accepts a multipart `video` file + title/type/durationSec/mimeType) |
+| `GET /share/:file` | — (public link) | Streams a stored video/translation, with byte-range support for scrubbing |
+| `POST /api/send` | ✓ | Emails (or returns a share link for) a lesson to selected students — pass either a `video` file or an existing `recordingId` to avoid re-uploading |
+| `POST /api/translate` | ✓ | Transcribe → translate → synthesize narration; pass `recordingId` to also save the result into that recording's cloud translations |
 
 ## What's in here
 
@@ -37,9 +67,9 @@ isn't set.
 | `index.html` | Dashboard / quick links |
 | `studio.html` | Whiteboard + camera recording + teleprompter |
 | `editor.html` | Cut mistakes, voice-over, background music, intro clip, translate, export |
-| `library.html` | All saved recordings — download, rename, delete, send |
+| `library.html` | All saved recordings (local + cloud) — download, rename, delete, backup, send |
 | `students.html` | Roster + "send this lesson to selected students" |
-| `settings.html` | Brand kit: colours + logo |
+| `settings.html` | Brand kit (colours + logo) + backend connection (server address + passcode) |
 
 ### Whiteboard
 Fabric.js-based canvas: pencil with a colour palette and adjustable size, an
@@ -81,6 +111,13 @@ works well for voiceover-style teaching but won't match your mouth movements
 in the camera feed. This needs `OPENAI_API_KEY` set in `server/.env`; swap
 in a different provider in `server/server.js` if you prefer one.
 
+### Cloud library
+`library.html` also shows a **Cloud library** — recordings you've backed up
+to the server (SQLite + files on disk), reachable from any device once
+you're pointed at the same backend. Hit "Backup to cloud" on any local
+recording to push it up; cloud recordings can be downloaded, deleted, or
+sent to students directly from there without re-uploading.
+
 ### Sending to students
 Add students under **Students**. From the Library or Editor, hit **Send** to
 pick recipients. With the backend + SMTP configured, they get an email with
@@ -99,6 +136,6 @@ values).
   (multi-hour) will be slow to render in the Editor since `ffmpeg.wasm` is
   single-threaded WASM, not a real server-side encoder.
 - Translation replaces narration rather than dubbing with lip-sync.
-- No user accounts/auth yet — the student roster and share links are
-  intentionally simple for a single-teacher setup.
+- Auth is a single shared passcode, not per-user accounts — intentionally
+  simple for a single-teacher setup, not a multi-teacher SaaS.
 - Background music must be supplied by you (licensing).

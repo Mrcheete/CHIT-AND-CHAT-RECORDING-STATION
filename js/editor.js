@@ -222,7 +222,7 @@ async function translateVideo() {
     const form = new FormData();
     form.append("video", currentBlob, "video." + extFor(currentRecording.mimeType));
     form.append("targetLang", $("translate-lang").value);
-    const res = await fetch("http://localhost:8787/api/translate", { method: "POST", body: form });
+    const res = await CCApi.fetch("/api/translate", { method: "POST", body: form });
     if (!res.ok) throw new Error(await res.text());
     const translatedBlob = await res.blob();
     const translations = currentRecording.translations || [];
