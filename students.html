@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chit & Chat — Students</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .roster-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--brand-border); }
+  .roster-row .spacer { flex: 1; }
+  .roster-row input[type=checkbox] { width: 18px; height: 18px; }
+  #send-panel { display: none; }
+</style>
+</head>
+<body>
+  <header id="app-header" class="app-header"></header>
+  <div class="container">
+    <h1 class="page-title">Students</h1>
+    <p class="page-sub">Keep a roster, then send a lesson to everyone (or just a few) in one go.</p>
+
+    <div class="card" id="send-panel">
+      <h3 id="send-title">Sending a video</h3>
+      <p class="script-note">Tick the students below, then hit send. Needs the optional backend running for real email delivery (see README) — otherwise you'll get a download link to share yourself.</p>
+      <button class="btn btn-primary" id="btn-do-send">Send to selected</button>
+    </div>
+
+    <div class="card">
+      <h3>Add a student</h3>
+      <div class="field" style="display:flex; gap:10px; align-items:flex-end">
+        <div style="flex:1"><label>Name</label><input type="text" id="new-name" placeholder="Nicole's student"></div>
+        <div style="flex:1"><label>Email</label><input type="email" id="new-email" placeholder="student@example.com"></div>
+        <button class="btn btn-primary" id="btn-add-student">Add</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Roster</h3>
+      <div id="roster-list"></div>
+    </div>
+  </div>
+  <script src="js/brand.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/students.js"></script>
+</body>
+</html>

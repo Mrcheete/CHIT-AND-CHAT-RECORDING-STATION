@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chit & Chat — Brand Kit</title>
+<link rel="stylesheet" href="css/style.css">
+<style>.swatch-preview{display:flex;gap:10px;margin-top:8px}
+.swatch-preview div{width:40px;height:40px;border-radius:8px;border:1px solid var(--brand-border)}
+#logo-preview{height:60px;margin-top:8px;border-radius:8px}</style>
+</head>
+<body>
+  <header id="app-header" class="app-header"></header>
+  <div class="container">
+    <h1 class="page-title">Brand Kit</h1>
+    <p class="page-sub">Your colours and logo apply across the whole studio.</p>
+
+    <div class="card" style="max-width:480px">
+      <div class="field">
+        <label>Studio name</label>
+        <input type="text" id="b-name">
+      </div>
+      <div class="field">
+        <label>Primary colour</label>
+        <input type="color" id="b-primary">
+      </div>
+      <div class="field">
+        <label>Secondary colour</label>
+        <input type="color" id="b-secondary">
+      </div>
+      <div class="field">
+        <label>Accent colour</label>
+        <input type="color" id="b-accent">
+      </div>
+      <div class="field">
+        <label>Header / ink colour</label>
+        <input type="color" id="b-ink">
+      </div>
+      <div class="field">
+        <label>Logo</label>
+        <input type="file" id="b-logo" accept="image/*">
+        <img id="logo-preview" src="">
+      </div>
+      <button class="btn btn-primary" id="btn-save-brand">Save brand kit</button>
+      <button class="btn btn-outline" id="btn-reset-brand">Reset to default</button>
+    </div>
+  </div>
+  <script src="js/brand.js"></script>
+  <script src="js/settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+document.addEventListener("DOMContentLoaded", () => {
+  CCBrand.renderHeader("studio.html");
+
+  const stageEl = document.getElementById("stage");
+  const whiteboardCanvasEl = document.getElementById("whiteboard-canvas");
+  const outputCanvasEl = document.getElementById("output-canvas");
+  const camPreviewEl = document.getElementById("cam-preview");
+
+  // size the fabric canvas to the stage's rendered box
+  whiteboardCanvasEl.width = stageEl.clientWidth;
+  whiteboardCanvasEl.height = stageEl.clientHeight;
+
+  const wb = createWhiteboard(whiteboardCanvasEl);
+  // Fabric renders across two stacked <canvas> elements; the "upper-canvas"
+  // holds the actual live composite (drawings + selection UI), so that's
+  // what the recorder should read frames from.
+  const fabricRenderTarget = document.querySelector("#stage .upper-canvas") || whiteboardCanvasEl;
+  const rec = createRecorder({
+    whiteboardCanvasEl: fabricRenderTarget,
+    outputCanvasEl,
+    videoPreviewEl: camPreviewEl,
+  });
+
+  window.addEventListener("resize", () => {
+    wb.resize(stageEl.clientWidth, stageEl.clientHeight);
+  });
+
+  // ---- Tool rail ----
+  document.querySelectorAll(".tool-btn[data-tool]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tool-btn[data-tool]").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      wb.setTool(btn.dataset.tool);
+    });
+  });
+  document.getElementById("btn-add-text").addEventListener("click", () => wb.addText());
+  document.getElementById("btn-add-image").addEventListener("click", () => document.getElementById("image-input").click());
+  document.getElementById("image-input").addEventListener("change", (e) => {
+    if (e.target.files[0]) wb.addImage(e.target.files[0]);
+    e.target.value = "";
+  });
+  document.getElementById("btn-undo").addEventListener("click", () => wb.undo());
+  document.getElementById("btn-redo").addEventListener("click", () => wb.redo());
+  document.getElementById("btn-delete").addEventListener("click", () => wb.deleteSelected());
+  document.getElementById("btn-clear").addEventListener("click", () => {
+    if (confirm("Clear the whole whiteboard?")) wb.clearBoard();
+  });
+  document.getElementById("pen-size").addEventListener("input", (e) => wb.setPenWidth(Number(e.target.value)));
+
+  const swatchesEl = document.getElementById("swatches");
+  wb.PALETTE.forEach((hex, i) => {
+    const s = document.createElement("div");
+    s.className = "swatch" + (i === 0 ? " active" : "");
+    s.style.background = hex;
+    s.title = hex;
+    s.addEventListener("click", () => {
+      wb.setPenColor(hex);
+      document.querySelectorAll(".swatch").forEach((el) => el.classList.remove("active"));
+      s.classList.add("active");
+    });
+    swatchesEl.appendChild(s);
+  });
+
+  // ---- Teleprompter ----
+  const tp = createTeleprompter({ panelEl: document.getElementById("script-panel"), textEl: document.getElementById("script-text") });
+  document.getElementById("btn-script-top").addEventListener("click", () => {
+    tp.setPosition("top");
+    document.getElementById("studio-layout").dataset.scriptTop = "1";
+  });
+  document.getElementById("btn-script-side").addEventListener("click", () => {
+    tp.setPosition("side");
+    document.getElementById("studio-layout").dataset.scriptTop = "0";
+  });
+  document.getElementById("script-paste").addEventListener("input", (e) => tp.setScript(e.target.value));
+  document.getElementById("script-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.name.endsWith(".pdf")) await tp.loadPdfFile(file);
+    else await tp.loadTxtFile(file);
+  });
+  document.getElementById("script-font").addEventListener("input", (e) => tp.setFontSize(Number(e.target.value)));
+  let autoscrollOn = false;
+  document.getElementById("btn-autoscroll").addEventListener("click", (e) => {
+    autoscrollOn = !autoscrollOn;
+    tp.setAutoScroll(autoscrollOn, 30);
+    e.target.textContent = `Auto-scroll: ${autoscrollOn ? "on" : "off"}`;
+  });
+  document.getElementById("chk-hide-recording").addEventListener("change", (e) => tp.setHideWhileRecording(e.target.checked));
+
+  // ---- Camera / layout ----
+  document.getElementById("btn-enable-cam").addEventListener("click", async (e) => {
+    try {
+      await rec.requestCamera();
+      e.target.textContent = "Camera ready ✓";
+      e.target.disabled = true;
+      document.getElementById("btn-record").disabled = false;
+    } catch (err) {
+      CCBrand.toast("Couldn't access camera/mic: " + err.message);
+    }
+  });
+  document.getElementById("layout-select").addEventListener("change", (e) => {
+    rec.setLayout(e.target.value);
+    stageEl.className = "whiteboard-stage " + e.target.value;
+  });
+
+  // ---- Record controls ----
+  const timerEl = document.getElementById("rec-timer");
+  function fmt(sec) {
+    const m = String(Math.floor(sec / 60)).padStart(2, "0");
+    const s = String(sec % 60).padStart(2, "0");
+    return `${m}:${s}`;
+  }
+  rec.on("tick", (sec) => (timerEl.innerHTML = `<span class="rec-dot"></span>${fmt(sec)}`));
+  rec.on("statechange", (state) => {
+    timerEl.classList.toggle("live", state === "recording");
+    document.getElementById("btn-record").disabled = state !== "idle";
+    document.getElementById("btn-pause").disabled = state === "idle";
+    document.getElementById("btn-pause").textContent = state === "paused" ? "Resume" : "Pause";
+    document.getElementById("btn-stop").disabled = state === "idle";
+    document.getElementById("btn-discard").disabled = state === "idle";
+    tp.onRecordingStateChange(state);
+  });
+
+  document.getElementById("btn-record").addEventListener("click", () => rec.start());
+  document.getElementById("btn-pause").addEventListener("click", () => {
+    if (rec.state === "recording") rec.pause();
+    else rec.resume();
+  });
+  document.getElementById("btn-discard").addEventListener("click", () => {
+    if (confirm("Discard this recording?")) rec.discard();
+  });
+  document.getElementById("btn-stop").addEventListener("click", async () => {
+    const result = await rec.stop();
+    if (!result) return;
+    const title = document.getElementById("rec-title").value.trim() || "Untitled lesson";
+    const id = await CCDB.addRecording({
+      title,
+      type: "lesson",
+      durationSec: result.durationSec,
+      blob: result.blob,
+      mimeType: result.mimeType,
+    });
+    CCBrand.toast(`Saved "${title}" (${fmt(result.durationSec)}) to your library.`);
+    setTimeout(() => (window.location.href = `editor.html?id=${id}`), 900);
+  });
+});

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chit & Chat — Recording Station</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .hero { padding: 60px 0 30px; text-align: center; }
+  .hero h1 { font-size: 2.2rem; margin-bottom: 8px; }
+  .hero p { color: #6b6b7d; max-width: 560px; margin: 0 auto 24px; }
+  .quick-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 40px; }
+  .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; padding-bottom: 60px; }
+  .feature-grid .card h3 { margin-top: 0; }
+</style>
+</head>
+<body>
+  <header id="app-header" class="app-header"></header>
+
+  <div class="container">
+    <div class="hero">
+      <h1>Your recording studio</h1>
+      <p>Draw on the whiteboard, record lessons with no time limit, edit out mistakes, add music or a voice-over, translate for students abroad, and send it all from one place.</p>
+      <div class="quick-actions">
+        <a href="studio.html" class="btn btn-primary">● Start recording</a>
+        <a href="library.html" class="btn btn-outline">Open library</a>
+        <a href="students.html" class="btn btn-outline">Manage students</a>
+      </div>
+    </div>
+
+    <div class="feature-grid">
+      <div class="card">
+        <h3>🖊️ Whiteboard</h3>
+        <p>Coloured pencils, an eraser, resizable editable text, and image drop-ins — undo/redo built in.</p>
+      </div>
+      <div class="card">
+        <h3>🎥 Unlimited recording</h3>
+        <p>Whiteboard + camera composite, saved straight to your device as you go — no length cap.</p>
+      </div>
+      <div class="card">
+        <h3>📜 Teleprompter</h3>
+        <p>Paste or upload a script (.txt/.pdf). Stays on your screen to read from — never in the recording.</p>
+      </div>
+      <div class="card">
+        <h3>✂️ Editor</h3>
+        <p>Cut out filler and mistakes, layer a voice-over, mix in background music, prepend your intro clip.</p>
+      </div>
+      <div class="card">
+        <h3>🌍 Translate</h3>
+        <p>Send lessons out in your students' language once the translation backend is connected.</p>
+      </div>
+      <div class="card">
+        <h3>🎨 Brand kit</h3>
+        <p>Your colours and logo, applied across every page. <a href="settings.html">Set it up →</a></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/brand.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", () => CCBrand.renderHeader("index.html"));</script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+.editor-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+  padding: 0 20px 60px;
+}
+.editor-main video {
+  width: 100%;
+  border-radius: var(--radius);
+  background: #000;
+  box-shadow: var(--shadow);
+}
+.clip-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.clip-row {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--brand-bg); border: 1px solid var(--brand-border);
+  border-radius: 8px; padding: 6px 10px; font-size: 0.85rem;
+}
+.clip-row .spacer { flex: 1; }
+.editor-side { display: flex; flex-direction: column; gap: 16px; }
+.editor-side .card h3 { margin-top: 0; font-size: 1rem; }
+.progress-bar {
+  height: 8px; border-radius: 999px; background: var(--brand-border); overflow: hidden; margin-top: 8px;
+}
+.progress-bar > div { height: 100%; background: var(--brand-primary); width: 0%; transition: width 0.2s; }
+.log-box {
+  font-family: ui-monospace, monospace; font-size: 0.75rem; background: var(--brand-ink); color: #d8f3dc;
+  border-radius: 8px; padding: 8px; max-height: 140px; overflow-y: auto; white-space: pre-wrap;
+}
+@media (max-width: 900px) { .editor-layout { grid-template-columns: 1fr; } }

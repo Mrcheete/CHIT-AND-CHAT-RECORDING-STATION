@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chit & Chat — Recording Studio</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/studio.css">
+</head>
+<body>
+  <header id="app-header" class="app-header"></header>
+
+  <div class="container">
+    <h1 class="page-title">Recording Studio</h1>
+    <p class="page-sub">Draw on the whiteboard, read your script off-camera, and record — no time limit.</p>
+  </div>
+
+  <div class="container">
+    <div class="field" style="max-width:420px">
+      <label for="rec-title">Lesson title</label>
+      <input type="text" id="rec-title" placeholder="e.g. Present Perfect — Grammar Lesson 4">
+    </div>
+  </div>
+
+  <div class="studio-layout with-script" id="studio-layout">
+    <!-- Tool rail -->
+    <div class="tool-rail">
+      <button class="tool-btn active" data-tool="pencil" title="Pencil">✏️</button>
+      <button class="tool-btn" data-tool="eraser" title="Eraser">🧽</button>
+      <button class="tool-btn" data-tool="text" title="Add text" id="btn-add-text">🔤</button>
+      <button class="tool-btn" id="btn-add-image" title="Add image">🖼️</button>
+      <input type="file" id="image-input" accept="image/*" hidden>
+      <hr>
+      <div class="swatches" id="swatches"></div>
+      <hr>
+      <input type="range" id="pen-size" min="1" max="40" value="4" title="Pen size" style="writing-mode: vertical-lr;">
+      <hr>
+      <button class="tool-btn" id="btn-undo" title="Undo">↩️</button>
+      <button class="tool-btn" id="btn-redo" title="Redo">↪️</button>
+      <button class="tool-btn" id="btn-delete" title="Delete selected">🗑️</button>
+      <button class="tool-btn" id="btn-clear" title="Clear board">🆕</button>
+    </div>
+
+    <!-- Center stage -->
+    <div class="stage-wrap">
+      <div class="stage-toolbar">
+        <button class="btn btn-outline btn-sm" id="btn-enable-cam">Enable camera & mic</button>
+        <select id="layout-select" class="btn btn-outline btn-sm">
+          <option value="pip-bottom-right">Camera: bottom-right</option>
+          <option value="pip-bottom-left">Camera: bottom-left</option>
+          <option value="side-by-side">Side by side</option>
+          <option value="whiteboard-only">Whiteboard only</option>
+          <option value="camera-only">Camera only</option>
+        </select>
+        <span class="spacer"></span>
+        <span class="rec-timer" id="rec-timer"><span class="rec-dot"></span>00:00</span>
+        <button class="btn btn-primary" id="btn-record">● Record</button>
+        <button class="btn btn-outline btn-sm" id="btn-pause" disabled>Pause</button>
+        <button class="btn btn-danger btn-sm" id="btn-stop" disabled>Stop & Save</button>
+        <button class="btn btn-ghost btn-sm" id="btn-discard" disabled>Discard</button>
+      </div>
+
+      <div class="whiteboard-stage pip-bottom-right" id="stage">
+        <canvas id="whiteboard-canvas"></canvas>
+        <video id="cam-preview" muted playsinline></video>
+      </div>
+      <canvas id="output-canvas" width="1280" height="720" style="display:none"></canvas>
+      <p class="script-note" style="margin-top:8px">Recording captures the whiteboard + your camera only. The script panel is never part of the recording.</p>
+    </div>
+
+    <!-- Script / teleprompter -->
+    <div class="script-panel" id="script-panel" data-position="side">
+      <div class="script-panel-head">
+        <strong>Script</strong>
+        <div class="script-controls">
+          <button class="btn btn-sm btn-outline" id="btn-script-top">Top</button>
+          <button class="btn btn-sm btn-outline" id="btn-script-side">Side</button>
+        </div>
+      </div>
+      <div class="script-controls">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:0.85rem">
+          <input type="checkbox" id="chk-hide-recording"> Hide from my screen too while recording
+        </label>
+      </div>
+      <div class="script-controls">
+        <input type="file" id="script-file" accept=".txt,.pdf" style="max-width:150px">
+        <button class="btn btn-sm btn-outline" id="btn-autoscroll">Auto-scroll: off</button>
+        <input type="range" id="script-font" min="14" max="42" value="20" title="Font size">
+      </div>
+      <textarea id="script-paste" rows="3" placeholder="…or paste your script here"></textarea>
+      <div class="script-text" id="script-text">Your script will appear here — upload a .txt/.pdf or paste text above.</div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
+  <script src="js/brand.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/whiteboard.js"></script>
+  <script src="js/recorder.js"></script>
+  <script src="js/teleprompter.js"></script>
+  <script src="js/studio.js"></script>
+</body>
+</html>

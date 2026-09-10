@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chit & Chat — Editor</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/editor.css">
+</head>
+<body>
+  <header id="app-header" class="app-header"></header>
+
+  <div class="container">
+    <h1 class="page-title">Editor</h1>
+    <p class="page-sub" id="editor-subtitle">Cut mistakes, add music or a voice-over, drop in your intro, translate, and export.</p>
+  </div>
+
+  <div class="editor-layout">
+    <div class="editor-main">
+      <video id="preview" controls></video>
+      <div class="stage-toolbar" style="margin-top:10px">
+        <span id="time-readout">0:00 / 0:00</span>
+        <span class="spacer" style="flex:1"></span>
+        <button class="btn btn-outline btn-sm" id="btn-mark-in">Mark cut start</button>
+        <button class="btn btn-outline btn-sm" id="btn-mark-out">Mark cut end</button>
+        <button class="btn btn-primary btn-sm" id="btn-add-cut" disabled>Add cut</button>
+      </div>
+      <h3>Cuts to remove (filler / mistakes)</h3>
+      <div class="clip-list" id="cut-list"></div>
+
+      <div class="card">
+        <h3>Apply & export</h3>
+        <div class="field">
+          <label>Output format</label>
+          <select id="export-format">
+            <option value="mp4">MP4 (best for sharing/translation)</option>
+            <option value="webm">WebM</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="btn-apply">Apply edits & render</button>
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+        <div class="log-box" id="ffmpeg-log" style="margin-top:10px; display:none"></div>
+      </div>
+    </div>
+
+    <div class="editor-side">
+      <div class="card">
+        <h3>🎬 Intro / greeting</h3>
+        <p class="script-note">Prepend a saved intro clip (record one in the Studio and save it as type "Intro").</p>
+        <select id="intro-select"><option value="">— none —</option></select>
+      </div>
+
+      <div class="card">
+        <h3>🎙️ Voice-over</h3>
+        <p class="script-note">Record narration separately, then mix it into this video's audio.</p>
+        <button class="btn btn-outline btn-sm" id="btn-vo-record">● Record voice-over</button>
+        <span id="vo-status" class="badge" style="display:none">Voice-over recorded</span>
+      </div>
+
+      <div class="card">
+        <h3>🎵 Background music</h3>
+        <input type="file" id="music-file" accept="audio/*">
+        <div class="field" style="margin-top:10px">
+          <label>Music volume</label>
+          <input type="range" id="music-volume" min="0" max="100" value="20">
+        </div>
+        <p class="script-note">Upload your own royalty-free track — Chit & Chat doesn't ship copyrighted music.</p>
+      </div>
+
+      <div class="card">
+        <h3>🌍 Translate</h3>
+        <p class="script-note">Needs the optional backend running with a translation API key configured (see README). Produces a translated copy alongside the original.</p>
+        <div class="field">
+          <label>Target language</label>
+          <select id="translate-lang">
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="pt">Portuguese</option>
+            <option value="zu">Zulu</option>
+            <option value="af">Afrikaans</option>
+            <option value="xh">Xhosa</option>
+            <option value="de">German</option>
+            <option value="zh">Chinese</option>
+          </select>
+        </div>
+        <button class="btn btn-outline" id="btn-translate">Translate this video</button>
+        <div id="translate-status" class="script-note"></div>
+      </div>
+
+      <div class="card">
+        <h3>📤 Send / download</h3>
+        <button class="btn btn-secondary" id="btn-download" style="width:100%">Download video</button>
+        <button class="btn btn-outline" id="btn-send" style="width:100%; margin-top:8px">Send to students →</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+  <script src="js/brand.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/editor.js"></script>
+</body>
+</html>
