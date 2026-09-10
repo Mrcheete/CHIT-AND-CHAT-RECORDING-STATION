@@ -377,7 +377,10 @@ app.post(
   upload.single("video"),
   asyncRoute(async (req, res) => {
     const { title, recordingId } = req.body;
-    const students = JSON.parse(req.body.students || "[]");
+    // A multipart request (re-uploading a raw file) sends students as a JSON
+    // string field; a plain JSON request (the common case now that every
+    // recording already lives server-side) sends it as a real array.
+    const students = Array.isArray(req.body.students) ? req.body.students : JSON.parse(req.body.students || "[]");
     if (!students.length) return res.status(400).json({ error: "no students selected" });
 
     let filename;

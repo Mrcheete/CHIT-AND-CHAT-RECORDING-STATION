@@ -1,9 +1,8 @@
 const { createFFmpeg, fetchFile } = FFmpeg;
 const params = new URLSearchParams(location.search);
-const RECORDING_ID = Number(params.get("id"));
+const RECORDING_ID = params.get("id");
 
 let currentRecording = null;
-let currentBlob = null;
 let cuts = []; // [{start, end}]
 let markIn = null;
 let voiceoverBlob = null;
@@ -79,22 +78,33 @@ function keepSegments(duration, cutRanges) {
 }
 
 async function loadRecordingIntoEditor() {
-  currentRecording = await CCDB.getRecording(RECORDING_ID);
+  try {
+    currentRecording = await CCApi.json(`/api/recordings/${RECORDING_ID}`);
+  } catch {
+    currentRecording = null;
+  }
   if (!currentRecording) {
     CCBrand.toast("Recording not found — pick one from the Library.");
     return;
   }
-  currentBlob = currentRecording.blob;
+  if (currentRecording.status !== "finalized") {
+    CCBrand.toast("This recording hasn't finished uploading yet — check the Library.");
+    return;
+  }
   $("editor-subtitle").textContent = `Editing "${currentRecording.title}"`;
-  $("preview").src = URL.createObjectURL(currentBlob);
+  $("preview").src = currentRecording.url;
   $("preview").addEventListener("timeupdate", () => {
     $("time-readout").textContent = `${fmtTime($("preview").currentTime)} / ${fmtTime($("preview").duration)}`;
   });
 }
 
 async function populateIntroOptions() {
-  const all = await CCDB.getAllRecordings();
-  const intros = all.filter((r) => r.type === "intro");
+  let intros = [];
+  try {
+    intros = (await CCApi.json("/api/recordings?type=intro")).filter((r) => r.status === "finalized");
+  } catch {
+    intros = [];
+  }
   const sel = $("intro-select");
   intros.forEach((r) => {
     const opt = document.createElement("option");
@@ -118,7 +128,7 @@ async function applyEditsAndRender() {
     const ff = await ensureFFmpeg(setProgress);
     const duration = $("preview").duration;
     const inputExt = extFor(currentRecording.mimeType);
-    ff.FS("writeFile", `input.${inputExt}`, await fetchFile(currentBlob));
+    ff.FS("writeFile", `input.${inputExt}`, await fetchFile(currentRecording.url));
 
     const segs = cuts.length ? keepSegments(duration, cuts) : [[0, duration]];
     const segFiles = [];
@@ -130,11 +140,11 @@ async function applyEditsAndRender() {
     }
 
     // Intro clip, prepended
-    const introId = Number($("intro-select").value);
+    const introId = $("intro-select").value;
     if (introId) {
-      const introRec = await CCDB.getRecording(introId);
+      const introRec = await CCApi.json(`/api/recordings/${introId}`);
       const iExt = extFor(introRec.mimeType);
-      ff.FS("writeFile", `intro.${iExt}`, await fetchFile(introRec.blob));
+      ff.FS("writeFile", `intro.${iExt}`, await fetchFile(introRec.url));
       await ff.run("-i", `intro.${iExt}`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", "intro_seg.mp4");
       segFiles.unshift("intro_seg.mp4");
     }
@@ -180,10 +190,21 @@ async function applyEditsAndRender() {
     const mimeType = format === "webm" ? "video/webm" : "video/mp4";
     const outBlob = new Blob([data.buffer], { type: mimeType });
 
-    currentBlob = outBlob;
     $("preview").src = URL.createObjectURL(outBlob);
-    await CCDB.updateRecording(RECORDING_ID, { blob: outBlob, mimeType, edited: true });
-    CCBrand.toast("Edits applied — preview updated.");
+    CCBrand.toast("Render complete — saving to your library…");
+
+    // Edits produce a new library entry (same pattern as a translation),
+    // rather than overwriting the original recording.
+    const form = new FormData();
+    form.append("video", outBlob, `edited.${format}`);
+    form.append("title", `${currentRecording.title} (edited)`);
+    form.append("type", currentRecording.type);
+    form.append("durationSec", currentRecording.durationSec || 0);
+    form.append("mimeType", mimeType);
+    form.append("edited", "1");
+    const saved = await CCApi.json("/api/recordings", { method: "POST", body: form });
+    CCBrand.toast("Saved as a new recording in your library.");
+    setTimeout(() => (window.location.href = `editor.html?id=${saved.id}`), 900);
   } catch (err) {
     console.error(err);
     CCBrand.toast("Render failed: " + err.message);
@@ -219,19 +240,18 @@ async function translateVideo() {
   const status = $("translate-status");
   status.textContent = "Translating… this can take a while for longer videos.";
   try {
-    const form = new FormData();
-    form.append("video", currentBlob, "video." + extFor(currentRecording.mimeType));
-    form.append("targetLang", $("translate-lang").value);
-    const res = await CCApi.fetch("/api/translate", { method: "POST", body: form });
+    const res = await CCApi.fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recordingId: currentRecording.id, targetLang: $("translate-lang").value }),
+    });
     if (!res.ok) throw new Error(await res.text());
-    const translatedBlob = await res.blob();
-    const translations = currentRecording.translations || [];
-    translations.push({ lang: $("translate-lang").value, blob: translatedBlob });
-    await CCDB.updateRecording(RECORDING_ID, { translations });
+    await res.blob(); // drain the streamed response — the saved copy is in this recording's translations list
+    currentRecording = await CCApi.json(`/api/recordings/${currentRecording.id}`);
     status.textContent = "Translated copy saved — find it in the Library.";
     CCBrand.toast("Translation complete.");
   } catch (err) {
-    status.textContent = "Translation needs the backend running (see README → Translation setup). " + err.message;
+    status.textContent = "Translation needs OPENAI_API_KEY configured on the server (see README). " + err.message;
   }
 }
 
@@ -264,11 +284,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   $("btn-download").addEventListener("click", () => {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(currentBlob);
+    a.href = currentRecording.url;
     a.download = `${(currentRecording.title || "video").replace(/[^\w-]+/g, "_")}.${extFor(currentRecording.mimeType)}`;
     a.click();
   });
   $("btn-send").addEventListener("click", () => {
-    window.location.href = `students.html?send=${RECORDING_ID}`;
+    window.location.href = `students.html?send=${currentRecording.id}`;
   });
 });

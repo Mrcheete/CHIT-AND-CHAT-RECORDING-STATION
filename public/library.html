@@ -13,6 +13,7 @@
   .lib-card .meta { color: #8a8a99; font-size: 0.8rem; margin-bottom: 10px; }
   .lib-card .actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .lib-card .translations { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .lib-card-placeholder { display: flex; align-items: center; justify-content: center; height: 100px; border-radius: 8px; background: var(--brand-bg); color: #8a8a99; font-size: 0.85rem; margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -26,10 +27,6 @@
       <button class="btn btn-outline" data-filter="intro">Intro clips</button>
     </div>
     <div class="grid grid-cards" id="lib-grid"></div>
-
-    <h2 class="page-title" style="font-size:1.3rem">Cloud library</h2>
-    <p class="page-sub">Recordings backed up to your server — reachable from any device. <a href="settings.html">Connect a backend →</a></p>
-    <div class="grid grid-cards" id="cloud-grid"></div>
   </div>
   <script src="js/auth.js"></script>
   <script src="js/brand.js"></script>

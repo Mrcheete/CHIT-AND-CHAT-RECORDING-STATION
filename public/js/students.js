@@ -1,40 +1,3 @@
-const STUDENTS_KEY = "cc_students_v1";
-
-function loadLocalRoster() {
-  try {
-    return JSON.parse(localStorage.getItem(STUDENTS_KEY)) || [];
-  } catch {
-    return [];
-  }
-}
-function saveLocalRoster(list) {
-  localStorage.setItem(STUDENTS_KEY, JSON.stringify(list));
-}
-
-async function fetchRoster() {
-  try {
-    return await CCApi.json("/api/students");
-  } catch {
-    return loadLocalRoster();
-  }
-}
-
-async function addStudent(student) {
-  try {
-    return await CCApi.json("/api/students", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(student),
-    });
-  } catch {
-    const list = loadLocalRoster();
-    const withId = { ...student, id: Date.now() };
-    list.push(withId);
-    saveLocalRoster(list);
-    return list;
-  }
-}
-
 function renderRoster(list) {
   const el = document.getElementById("roster-list");
   const sendPanelOpen = document.getElementById("send-panel").style.display === "block";
@@ -57,15 +20,19 @@ function renderRoster(list) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   CCBrand.renderHeader("students.html");
-  let roster = await fetchRoster();
+
+  let roster = [];
+  try {
+    roster = await CCApi.json("/api/students");
+  } catch (err) {
+    document.getElementById("roster-list").innerHTML = `<div class="empty-state">Can't reach the server (${err.message}) — check your connection and reload.</div>`;
+  }
 
   const params = new URLSearchParams(location.search);
   const sendId = params.get("send");
   if (sendId) {
     document.getElementById("send-panel").style.display = "block";
-    const isCloud = sendId.startsWith("cloud:");
-    const cloudId = isCloud ? sendId.slice("cloud:".length) : null;
-    const rec = isCloud ? await CCApi.json(`/api/recordings/${cloudId}`).catch(() => null) : await CCDB.getRecording(Number(sendId));
+    const rec = await CCApi.json(`/api/recordings/${sendId}`).catch(() => null);
     document.getElementById("send-title").textContent = `Sending "${rec ? rec.title : "video"}"`;
 
     document.getElementById("btn-do-send").addEventListener("click", async () => {
@@ -74,25 +41,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       const chosen = roster.filter((s) => checked.includes(s.id));
 
       try {
-        const form = new FormData();
-        if (isCloud) {
-          // Already stored server-side — reference it instead of re-uploading.
-          form.append("recordingId", cloudId);
-        } else {
-          form.append("video", rec.blob, `${rec.title}.${rec.mimeType.includes("mp4") ? "mp4" : "webm"}`);
-        }
-        form.append("title", rec.title);
-        form.append("students", JSON.stringify(chosen));
-        const res = await CCApi.fetch("/api/send", { method: "POST", body: form });
-        if (!res.ok) throw new Error(await res.text());
-        const result = await res.json();
+        const result = await CCApi.json("/api/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: rec ? rec.title : "Your lesson", recordingId: sendId, students: chosen }),
+        });
         CCBrand.toast(
           result.emailed
             ? `Sent "${rec.title}" to ${chosen.length} student(s).`
             : `Saved a share link (email isn't configured on the server yet): ${result.shareUrl}`
         );
       } catch (err) {
-        CCBrand.toast("Backend not running — download the video from the Library and share it manually. (" + err.message + ")");
+        CCBrand.toast("Couldn't send: " + err.message);
       }
     });
   }
@@ -103,10 +63,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     const name = document.getElementById("new-name").value.trim();
     const email = document.getElementById("new-email").value.trim();
     if (!name || !email) return CCBrand.toast("Name and email are required.");
-    roster = await addStudent({ name, email });
-    if (!Array.isArray(roster)) roster = await fetchRoster();
-    document.getElementById("new-name").value = "";
-    document.getElementById("new-email").value = "";
-    renderRoster(roster);
+    try {
+      await CCApi.json("/api/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email }),
+      });
+      roster = await CCApi.json("/api/students");
+      document.getElementById("new-name").value = "";
+      document.getElementById("new-email").value = "";
+      renderRoster(roster);
+    } catch (err) {
+      CCBrand.toast("Couldn't add student: " + err.message);
+    }
   });
 });
