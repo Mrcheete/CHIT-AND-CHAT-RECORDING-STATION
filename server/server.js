@@ -235,6 +235,7 @@ app.delete(
       // An in-progress (never-finalized) upload has no final file yet — an
       // empty file_path here would resolve to UPLOAD_DIR itself, so skip it.
       if (r.file_path) fs.rm(path.join(UPLOAD_DIR, r.file_path), { force: true }, () => {});
+      if (r.vtt_path) fs.rm(path.join(UPLOAD_DIR, r.vtt_path), { force: true }, () => {});
     });
     fs.rm(uploadPartsDir(rec.id), { recursive: true, force: true }, () => {});
     db.prepare("DELETE FROM recordings WHERE id = ?").run(rec.id); // cascades to translations/send_log via FK
@@ -353,7 +354,7 @@ app.post(
 );
 
 function toRecordingDTO(rec) {
-  const translations = db.prepare("SELECT id, lang, file_path, created_at FROM translations WHERE recording_id = ?").all(rec.id);
+  const translations = db.prepare("SELECT id, lang, file_path, vtt_path, created_at FROM translations WHERE recording_id = ?").all(rec.id);
   return {
     id: rec.id,
     title: rec.title,
@@ -365,7 +366,13 @@ function toRecordingDTO(rec) {
     status: rec.status,
     createdAt: rec.created_at,
     url: rec.file_path ? shareUrl(rec.file_path) : null,
-    translations: translations.map((t) => ({ id: t.id, lang: t.lang, createdAt: t.created_at, url: shareUrl(t.file_path) })),
+    translations: translations.map((t) => ({
+      id: t.id,
+      lang: t.lang,
+      createdAt: t.created_at,
+      url: shareUrl(t.file_path),
+      vttUrl: t.vtt_path ? shareUrl(t.vtt_path) : null,
+    })),
   };
 }
 
@@ -531,9 +538,10 @@ app.post(
         ffmpeg(sourcePath).noVideo().audioCodec("libmp3lame").save(audioPath).on("end", resolve).on("error", reject);
       });
 
-      const transcript = await transcribeAudio(audioPath, apiKey);
-      const translatedText = await translateText(transcript, targetLang, apiKey);
-      await synthesizeSpeech(translatedText, ttsPath, apiKey);
+      const segments = await transcribeAudio(audioPath, apiKey);
+      const translatedSegments = await translateSegments(segments, targetLang, apiKey);
+      const fullTranslatedText = translatedSegments.map((s) => s.translatedText).join(" ");
+      await synthesizeSpeech(fullTranslatedText, ttsPath, apiKey);
 
       await new Promise((resolve, reject) => {
         ffmpeg()
@@ -545,17 +553,28 @@ app.post(
           .on("error", reject);
       });
 
+      // The dubbed narration is one continuous TTS pass (see synthesizeSpeech
+      // below) rather than timed per segment, so these captions track the
+      // ORIGINAL spoken timing — close for the first stretch of a video but
+      // free to drift from the new narration's pace over a long one.
+      // Per-segment timed dubbing (Phase 2) is what actually fixes that.
+      const vttFilename = `${crypto.randomUUID()}.vtt`;
+      const vttPath = path.join(UPLOAD_DIR, vttFilename);
+      fs.writeFileSync(vttPath, buildVtt(translatedSegments));
+
       if (recordingId) {
-        db.prepare("INSERT INTO translations (recording_id, lang, file_path, created_at) VALUES (?, ?, ?, ?)").run(
+        db.prepare("INSERT INTO translations (recording_id, lang, file_path, vtt_path, created_at) VALUES (?, ?, ?, ?, ?)").run(
           recordingId,
           targetLang,
           outFilename,
+          vttFilename,
           Date.now()
         );
       }
 
       res.setHeader("Content-Type", "video/mp4");
       res.setHeader("X-Share-Url", shareUrl(outFilename));
+      res.setHeader("X-Captions-Url", shareUrl(vttFilename));
       fs.createReadStream(outPath).pipe(res);
     } finally {
       fs.rm(workDir, { recursive: true, force: true }, () => {});
@@ -568,6 +587,7 @@ async function transcribeAudio(audioPath, apiKey) {
   const form = new FormData();
   form.append("file", fs.createReadStream(audioPath));
   form.append("model", "whisper-1");
+  form.append("response_format", "verbose_json"); // gets per-segment timestamps, not just one blob of text
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, ...form.getHeaders() },
@@ -575,27 +595,62 @@ async function transcribeAudio(audioPath, apiKey) {
   });
   if (!res.ok) throw new Error(`transcription failed: ${await res.text()}`);
   const json = await res.json();
-  return json.text;
+  return json.segments || [];
 }
 
-async function translateText(text, targetLang, apiKey) {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `Translate the user's lesson transcript into language code "${targetLang}". Keep the tone natural and spoken, suitable for a teacher addressing students. Return only the translated text.`,
-        },
-        { role: "user", content: text },
-      ],
-    }),
+// Translated sentence-by-sentence (rather than one whole-transcript call) so
+// each segment keeps its own original timing for captions, and a mistake in
+// one sentence's translation doesn't risk the model losing its place across
+// a whole lesson's worth of text.
+async function translateSegments(segments, targetLang, apiKey) {
+  const translated = [];
+  for (const seg of segments) {
+    const text = (seg.text || "").trim();
+    if (!text) {
+      translated.push({ start: seg.start, end: seg.end, translatedText: "" });
+      continue;
+    }
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `Translate the user's lesson transcript sentence into language code "${targetLang}". Keep the tone natural and spoken, suitable for a teacher addressing students. Return only the translated text, nothing else.`,
+          },
+          { role: "user", content: text },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(`translation failed: ${await res.text()}`);
+    const json = await res.json();
+    translated.push({ start: seg.start, end: seg.end, translatedText: json.choices[0].message.content.trim() });
+  }
+  return translated;
+}
+
+function formatVttTime(seconds) {
+  const clamped = Math.max(0, seconds || 0);
+  const ms = Math.round((clamped % 1) * 1000);
+  const totalSec = Math.floor(clamped);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+}
+
+function buildVtt(translatedSegments) {
+  const lines = ["WEBVTT", ""];
+  translatedSegments.forEach((seg, i) => {
+    if (!seg.translatedText) return;
+    lines.push(String(i + 1));
+    lines.push(`${formatVttTime(seg.start)} --> ${formatVttTime(seg.end)}`);
+    lines.push(seg.translatedText);
+    lines.push("");
   });
-  if (!res.ok) throw new Error(`translation failed: ${await res.text()}`);
-  const json = await res.json();
-  return json.choices[0].message.content;
+  return lines.join("\n");
 }
 
 async function synthesizeSpeech(text, outPath, apiKey) {

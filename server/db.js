@@ -50,6 +50,7 @@ db.exec(`
     recording_id TEXT NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
     lang TEXT NOT NULL,
     file_path TEXT NOT NULL,
+    vtt_path TEXT,
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_translations_recording ON translations(recording_id);

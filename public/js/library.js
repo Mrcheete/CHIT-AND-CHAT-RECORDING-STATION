@@ -58,7 +58,13 @@ function cardFor(rec) {
       <button class="btn btn-sm btn-danger" data-action="delete">Delete</button>
     </div>
     <div class="translations">
-      ${(rec.translations || []).map((t) => `<a class="badge" href="${t.url}" download>${LANG_NAMES[t.lang] || t.lang} ↓</a>`).join("")}
+      ${(rec.translations || [])
+        .map(
+          (t) =>
+            `<a class="badge" href="${t.url}" download>${LANG_NAMES[t.lang] || t.lang} ↓</a>` +
+            (t.vttUrl ? `<a class="badge" href="${t.vttUrl}" download>${LANG_NAMES[t.lang] || t.lang} captions ↓</a>` : "")
+        )
+        .join("")}
     </div>
   `;
 
