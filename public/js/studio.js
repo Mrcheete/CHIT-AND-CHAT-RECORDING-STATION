@@ -131,17 +131,22 @@ document.addEventListener("DOMContentLoaded", () => {
     if (confirm("Discard this recording?")) rec.discard();
   });
   document.getElementById("btn-stop").addEventListener("click", async () => {
-    const result = await rec.stop();
-    if (!result) return;
     const title = document.getElementById("rec-title").value.trim() || "Untitled lesson";
-    const id = await CCDB.addRecording({
-      title,
-      type: "lesson",
-      durationSec: result.durationSec,
-      blob: result.blob,
-      mimeType: result.mimeType,
-    });
-    CCBrand.toast(`Saved "${title}" (${fmt(result.durationSec)}) to your library.`);
-    setTimeout(() => (window.location.href = `editor.html?id=${id}`), 900);
+    CCBrand.toast("Saving…");
+    const result = await rec.stop({ title, type: "lesson" });
+    if (!result) return;
+    if (!result.recording) {
+      CCBrand.toast(
+        `Couldn't finish saving "${title}" to the server (${result.finalizeError || "unknown error"}). ` +
+          `The recording is still in this browser — check your connection, then record again once it's steady.`
+      );
+      return;
+    }
+    if (result.pendingFailures > 0) {
+      CCBrand.toast(`Saved "${title}", but ${result.pendingFailures} chunk(s) never made it — the recording may have gaps.`);
+    } else {
+      CCBrand.toast(`Saved "${title}" (${fmt(result.durationSec)}) to your library.`);
+    }
+    setTimeout(() => (window.location.href = `editor.html?id=${result.recording.id}`), 900);
   });
 });

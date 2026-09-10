@@ -1,8 +1,34 @@
 // Compositing recorder: draws the whiteboard canvas + webcam feed onto one
 // output canvas every frame, captures that as a MediaStream, mixes in mic
-// audio, and records with MediaRecorder. Chunks are flushed to IndexedDB as
-// they arrive (see db.js) so recording length isn't bounded by JS memory —
-// only by however much disk space the browser/OS makes available.
+// audio, and records with MediaRecorder. Each chunk is written to IndexedDB
+// (a local safety net for retrying a failed upload) AND streamed to the
+// server as its own indexed part file (see server/server.js's /chunk route)
+// as it arrives — so recording length is bounded by disk space, not by
+// holding the whole video in JS memory or IndexedDB alone.
+async function uploadChunk(uploadId, seq, blob, mimeType) {
+  const res = await fetch(`/api/recordings/${uploadId}/chunk?seq=${seq}&mimeType=${encodeURIComponent(mimeType)}`, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: await blob.arrayBuffer(),
+  });
+  if (!res.ok) throw new Error(`chunk ${seq} upload failed: ${res.status}`);
+}
+
+async function finalizeUpload(uploadId, { title, type, durationSec, mimeType, edited }) {
+  const res = await fetch(`/api/recordings/${uploadId}/finalize`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, type, durationSec, mimeType, edited: edited ? "1" : "0" }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`finalize failed (${res.status}): ${body}`);
+  }
+  return res.json();
+}
+
 function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) {
   const outputCtx = outputCanvasEl.getContext("2d");
   let camStream = null;
@@ -10,6 +36,8 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
   let mediaRecorder = null;
   let rafId = null;
   let sessionId = null;
+  let seq = 0;
+  let pendingRetrySeqs = new Set();
   let startedAt = 0;
   let elapsedBeforePause = 0;
   let layout = "pip-bottom-right"; // pip-bottom-right | pip-bottom-left | whiteboard-only | camera-only | side-by-side
@@ -72,7 +100,9 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
 
   async function start() {
     if (state === "recording") return;
-    sessionId = `sess_${Date.now()}`;
+    sessionId = crypto.randomUUID();
+    seq = 0;
+    pendingRetrySeqs = new Set();
     startedAt = Date.now();
     elapsedBeforePause = 0;
 
@@ -87,9 +117,17 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
     );
     mediaRecorder = new MediaRecorder(mixedStream, { mimeType });
     mediaRecorder.ondataavailable = async (e) => {
-      if (e.data && e.data.size > 0) await CCDB.addChunk(sessionId, e.data);
+      if (!(e.data && e.data.size > 0)) return;
+      const thisSeq = seq++;
+      await CCDB.addChunk(sessionId, e.data); // local safety net for retrying a failed upload
+      try {
+        await uploadChunk(sessionId, thisSeq, e.data, mimeType);
+      } catch (err) {
+        console.warn(`Chunk ${thisSeq} didn't reach the server yet, will retry when recording stops:`, err.message);
+        pendingRetrySeqs.add(thisSeq);
+      }
     };
-    mediaRecorder.start(2000); // flush a chunk to IndexedDB every 2s
+    mediaRecorder.start(2000); // flush + upload a chunk every 2s
     state = "recording";
     emit("statechange", state);
     tickLoop();
@@ -124,26 +162,51 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
     tickLoop();
   }
 
-  function stop() {
+  function stop({ title = "Untitled recording", type = "lesson", edited = false } = {}) {
     return new Promise((resolve) => {
       if (!mediaRecorder || state === "idle") return resolve(null);
       mediaRecorder.onstop = async () => {
         cancelAnimationFrame(rafId);
         const mimeType = mediaRecorder.mimeType || "video/webm";
-        const chunks = await CCDB.getChunks(sessionId);
-        const blob = new Blob(chunks, { type: mimeType });
-        await CCDB.clearChunks(sessionId);
         const duration = elapsedSeconds();
+        const uploadId = sessionId;
         state = "idle";
         emit("statechange", state);
-        resolve({ blob, mimeType, durationSec: duration, sessionId });
+
+        // A chunk that failed live still has a local copy — resend it now
+        // before asking the server to assemble the final file.
+        if (pendingRetrySeqs.size > 0) {
+          const chunks = await CCDB.getChunks(uploadId);
+          for (const failedSeq of Array.from(pendingRetrySeqs)) {
+            try {
+              await uploadChunk(uploadId, failedSeq, chunks[failedSeq], mimeType);
+              pendingRetrySeqs.delete(failedSeq);
+            } catch (err) {
+              console.warn(`Retry of chunk ${failedSeq} failed again:`, err.message);
+            }
+          }
+        }
+
+        let recording = null;
+        let finalizeError = null;
+        try {
+          recording = await finalizeUpload(uploadId, { title, type, durationSec: duration, mimeType, edited });
+          await CCDB.clearChunks(uploadId); // server has it now — safe to drop the local safety-net copy
+        } catch (err) {
+          finalizeError = err.message;
+        }
+
+        resolve({ uploadId, durationSec: duration, mimeType, recording, finalizeError, pendingFailures: pendingRetrySeqs.size });
       };
       if (mediaRecorder.state !== "inactive") mediaRecorder.stop();
     });
   }
 
   function discard() {
-    if (sessionId) CCDB.clearChunks(sessionId);
+    if (sessionId) {
+      CCDB.clearChunks(sessionId);
+      fetch(`/api/recordings/${sessionId}`, { method: "DELETE", credentials: "same-origin" }).catch(() => {});
+    }
     cancelAnimationFrame(rafId);
     state = "idle";
     emit("statechange", state);

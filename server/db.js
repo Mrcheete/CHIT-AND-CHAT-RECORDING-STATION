@@ -39,6 +39,7 @@ db.exec(`
     file_path TEXT NOT NULL,
     file_size INTEGER NOT NULL DEFAULT 0,
     edited INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'finalized', -- 'uploading' | 'finalized' | 'failed'
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_recordings_type ON recordings(type);

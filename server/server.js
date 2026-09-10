@@ -61,8 +61,19 @@ app.use(express.static(PUBLIC_DIR));
 // Public and unauthenticated on purpose — this is what makes share links usable.
 app.use("/share", express.static(UPLOAD_DIR, { maxAge: "1d" }));
 
-const generalLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
+// Chunk/finalize uploads happen every ~2s for as long as a lesson records,
+// which would blow through the general API limit on any recording longer
+// than ~10 minutes — so they get their own, much roomier limiter instead.
+const CHUNK_ROUTE_RE = /^\/api\/recordings\/[^/]+\/(chunk|finalize)$/;
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => CHUNK_ROUTE_RE.test(req.path),
+});
 const expensiveLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+const chunkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 3000, standardHeaders: true, legacyHeaders: false });
 app.use("/api", generalLimiter);
 
 const VIDEO_TYPES = /^(video|audio)\//;
@@ -87,6 +98,10 @@ const upload = multer({
 
 function shareUrl(filename) {
   return `${process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`}/share/${filename}`;
+}
+
+function uploadPartsDir(id) {
+  return path.join(UPLOAD_DIR, `_upload_${id}`);
 }
 
 function mailer() {
@@ -216,9 +231,124 @@ app.delete(
     const rec = db.prepare("SELECT * FROM recordings WHERE id = ?").get(req.params.id);
     if (!rec) return res.status(404).json({ error: "not found" });
     const translations = db.prepare("SELECT * FROM translations WHERE recording_id = ?").all(rec.id);
-    [rec, ...translations].forEach((r) => fs.rm(path.join(UPLOAD_DIR, r.file_path), { force: true }, () => {}));
+    [rec, ...translations].forEach((r) => {
+      // An in-progress (never-finalized) upload has no final file yet — an
+      // empty file_path here would resolve to UPLOAD_DIR itself, so skip it.
+      if (r.file_path) fs.rm(path.join(UPLOAD_DIR, r.file_path), { force: true }, () => {});
+    });
+    fs.rm(uploadPartsDir(rec.id), { recursive: true, force: true }, () => {});
     db.prepare("DELETE FROM recordings WHERE id = ?").run(rec.id); // cascades to translations/send_log via FK
     res.status(204).end();
+  })
+);
+
+// ---------------------------------------------------- chunked upload (long recordings)
+// A recording is created incrementally: each ~2s chunk from MediaRecorder is
+// PUT to its own indexed part file (never appended blindly), so a retried
+// chunk just overwrites the same file instead of risking a doubled-up or
+// corrupted stream. The first chunk creates a placeholder row with
+// status='uploading' so an abandoned recording is visible (and cleanable)
+// in the library instead of silently vanishing; finalize checks every
+// sequence number is present, concatenates them in order, and marks it
+// 'finalized'.
+app.put(
+  "/api/recordings/:id/chunk",
+  requireAuth,
+  chunkLimiter,
+  express.raw({ type: "*/*", limit: "50mb" }),
+  asyncRoute((req, res) => {
+    const { id } = req.params;
+    const seq = Number(req.query.seq);
+    if (!Number.isInteger(seq) || seq < 0) return res.status(400).json({ error: "seq must be a non-negative integer" });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: "empty chunk body" });
+
+    const rec = db.prepare("SELECT id FROM recordings WHERE id = ?").get(id);
+    if (!rec) {
+      const mimeType = req.query.mimeType || "video/webm";
+      db.prepare(
+        "INSERT INTO recordings (id, title, type, duration_sec, mime_type, file_path, file_size, edited, status, created_at) VALUES (?, 'Recording in progress', 'lesson', 0, ?, '', 0, 0, 'uploading', ?)"
+      ).run(id, mimeType, Date.now());
+    }
+
+    const dir = uploadPartsDir(id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${seq}.part`), req.body);
+    res.json({ ok: true, seq });
+  })
+);
+
+app.post(
+  "/api/recordings/:id/finalize",
+  requireAuth,
+  chunkLimiter,
+  asyncRoute(async (req, res) => {
+    const { id } = req.params;
+    const rec = db.prepare("SELECT * FROM recordings WHERE id = ?").get(id);
+    if (!rec) return res.status(404).json({ error: "no upload found for this id — send at least one chunk first" });
+
+    const dir = uploadPartsDir(id);
+    let seqs;
+    try {
+      seqs = fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith(".part"))
+        .map((f) => Number(f.slice(0, -5)))
+        .sort((a, b) => a - b);
+    } catch {
+      seqs = [];
+    }
+    if (seqs.length === 0) {
+      db.prepare("UPDATE recordings SET status = 'failed' WHERE id = ?").run(id);
+      return res.status(400).json({ error: "no chunks were received for this upload" });
+    }
+    for (let i = 0; i < seqs.length; i++) {
+      if (seqs[i] !== i) {
+        return res.status(409).json({
+          error: `missing chunk ${i} — the upload is incomplete. Retry the missing chunk(s), then finalize again.`,
+          receivedSeqs: seqs,
+        });
+      }
+    }
+
+    const { title, type, durationSec, mimeType, edited } = req.body;
+    const finalMimeType = mimeType || rec.mime_type;
+    const finalFilename = `${id}${extFor("", finalMimeType)}`;
+    const finalPath = path.join(UPLOAD_DIR, finalFilename);
+
+    const out = fs.createWriteStream(finalPath);
+    try {
+      for (const s of seqs) {
+        await new Promise((resolve, reject) => {
+          const rs = fs.createReadStream(path.join(dir, `${s}.part`));
+          rs.on("error", reject);
+          rs.on("end", resolve);
+          rs.pipe(out, { end: false });
+        });
+      }
+    } finally {
+      out.end();
+    }
+    await new Promise((resolve, reject) => {
+      out.on("finish", resolve);
+      out.on("error", reject);
+    });
+
+    const fileSize = fs.statSync(finalPath).size;
+    db.prepare(
+      "UPDATE recordings SET title = ?, type = ?, duration_sec = ?, mime_type = ?, file_path = ?, file_size = ?, edited = ?, status = 'finalized' WHERE id = ?"
+    ).run(
+      title || rec.title || "Untitled recording",
+      type || rec.type || "lesson",
+      Number(durationSec) || 0,
+      finalMimeType,
+      finalFilename,
+      fileSize,
+      edited === "1" || edited === "true" ? 1 : 0,
+      id
+    );
+
+    fs.rm(dir, { recursive: true, force: true }, () => {});
+    res.status(201).json(toRecordingDTO(db.prepare("SELECT * FROM recordings WHERE id = ?").get(id)));
   })
 );
 
@@ -232,8 +362,9 @@ function toRecordingDTO(rec) {
     mimeType: rec.mime_type,
     fileSize: rec.file_size,
     edited: Boolean(rec.edited),
+    status: rec.status,
     createdAt: rec.created_at,
-    url: shareUrl(rec.file_path),
+    url: rec.file_path ? shareUrl(rec.file_path) : null,
     translations: translations.map((t) => ({ id: t.id, lang: t.lang, createdAt: t.created_at, url: shareUrl(t.file_path) })),
   };
 }
