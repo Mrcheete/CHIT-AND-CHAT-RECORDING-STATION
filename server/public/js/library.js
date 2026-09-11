@@ -66,6 +66,15 @@ function cardFor(rec) {
         )
         .join("")}
     </div>
+    ${
+      (rec.chapters || []).length
+        ? `<div class="chapters">
+            ${rec.chapters
+              .map((c) => `<button type="button" class="badge" data-jump="${c.timeSec}">📍 ${fmtDuration(c.timeSec)} ${c.label}</button>`)
+              .join("")}
+          </div>`
+        : ""
+    }
   `;
 
   div.querySelector('[data-action="send"]').addEventListener("click", () => {
@@ -86,6 +95,14 @@ function cardFor(rec) {
     }
   });
   div.querySelector('[data-action="delete"]').addEventListener("click", () => deleteRecording(rec));
+
+  div.querySelectorAll("[data-jump]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const video = div.querySelector("video");
+      video.currentTime = Number(btn.dataset.jump);
+      video.play();
+    });
+  });
 
   return div;
 }

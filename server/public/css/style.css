@@ -131,6 +131,18 @@ textarea { resize: vertical; }
   font-size: 0.75rem;
   font-weight: 700;
 }
+button.badge {
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.translations,
+.chapters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
 .toast {
   position: fixed;
   bottom: 20px;

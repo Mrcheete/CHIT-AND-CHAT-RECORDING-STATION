@@ -363,6 +363,7 @@ app.post(
 
 function toRecordingDTO(rec) {
   const translations = db.prepare("SELECT id, lang, file_path, vtt_path, created_at FROM translations WHERE recording_id = ?").all(rec.id);
+  const chapters = db.prepare("SELECT id, time_sec, label FROM chapters WHERE recording_id = ? ORDER BY time_sec ASC").all(rec.id);
   return {
     id: rec.id,
     title: rec.title,
@@ -381,8 +382,36 @@ function toRecordingDTO(rec) {
       url: shareUrl(t.file_path),
       vttUrl: t.vtt_path ? shareUrl(t.vtt_path) : null,
     })),
+    chapters: chapters.map((c) => ({ id: c.id, timeSec: c.time_sec, label: c.label })),
   };
 }
+
+// ----------------------------------------------------------------- chapters
+// Bookmarked moments in a recording so a viewer can jump straight to a
+// topic. Always replaces the whole list (same "delete all, insert new"
+// pattern used elsewhere) — chapters are cheap metadata, not a rendered
+// asset, so there's no reason to diff them.
+app.put(
+  "/api/recordings/:id/chapters",
+  requireAuth,
+  asyncRoute((req, res) => {
+    const rec = db.prepare("SELECT id FROM recordings WHERE id = ?").get(req.params.id);
+    if (!rec) return res.status(404).json({ error: "not found" });
+
+    const chapters = Array.isArray(req.body.chapters) ? req.body.chapters : [];
+    const valid = chapters.every(
+      (c) => typeof c.timeSec === "number" && c.timeSec >= 0 && typeof c.label === "string" && c.label.trim()
+    );
+    if (!valid) return res.status(400).json({ error: "chapters must be an array of {timeSec, label}, with a non-empty label" });
+
+    db.prepare("DELETE FROM chapters WHERE recording_id = ?").run(rec.id);
+    const insert = db.prepare("INSERT INTO chapters (recording_id, time_sec, label, created_at) VALUES (?, ?, ?, ?)");
+    const now = Date.now();
+    chapters.forEach((c) => insert.run(rec.id, c.timeSec, c.label.trim(), now));
+
+    res.json(toRecordingDTO(db.prepare("SELECT * FROM recordings WHERE id = ?").get(rec.id)));
+  })
+);
 
 // -------------------------------------------------------------------- send
 app.post(

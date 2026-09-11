@@ -10,6 +10,7 @@ let musicFile = null;
 let ffmpeg = null;
 let timelineDragStart = null; // seconds, while dragging a new cut on the timeline
 let timelineDragCurrent = null;
+let chapters = []; // [{id, timeSec, label}]
 
 const $ = (id) => document.getElementById(id);
 
@@ -178,6 +179,55 @@ async function loadRecordingIntoEditor() {
     if (duration) $("timeline-playhead").style.left = `${($("preview").currentTime / duration) * 100}%`;
   });
   $("preview").addEventListener("loadedmetadata", () => renderTimeline());
+  chapters = currentRecording.chapters || [];
+  renderChapterList();
+}
+
+function renderChapterList() {
+  const list = $("chapter-list");
+  if (!chapters.length) {
+    list.innerHTML = `<p class="script-note">No chapters yet — play to the moment a new topic starts, type a label, and add it.</p>`;
+    return;
+  }
+  list.innerHTML = "";
+  chapters
+    .slice()
+    .sort((a, b) => a.timeSec - b.timeSec)
+    .forEach((c) => {
+      const row = document.createElement("div");
+      row.className = "clip-row";
+      row.innerHTML = `<span>📍 ${fmtTime(c.timeSec)} — ${c.label}</span><span class="spacer"></span>`;
+      const jump = document.createElement("button");
+      jump.className = "btn btn-sm btn-outline";
+      jump.textContent = "Jump";
+      jump.onclick = () => {
+        $("preview").currentTime = c.timeSec;
+      };
+      const rm = document.createElement("button");
+      rm.className = "btn btn-sm btn-ghost";
+      rm.textContent = "Remove";
+      rm.onclick = async () => {
+        chapters = chapters.filter((x) => x !== c);
+        await saveChapters();
+        renderChapterList();
+      };
+      row.appendChild(jump);
+      row.appendChild(rm);
+      list.appendChild(row);
+    });
+}
+
+async function saveChapters() {
+  try {
+    const saved = await CCApi.json(`/api/recordings/${currentRecording.id}/chapters`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chapters: chapters.map((c) => ({ timeSec: c.timeSec, label: c.label })) }),
+    });
+    chapters = saved.chapters;
+  } catch (err) {
+    CCBrand.toast("Couldn't save chapters: " + err.message);
+  }
 }
 
 async function populateIntroOptions() {
@@ -452,6 +502,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-apply").addEventListener("click", applyEditsAndRender);
   $("btn-translate").addEventListener("click", translateVideo);
   $("btn-audio-cleanup").addEventListener("click", cleanUpAudio);
+  $("btn-add-chapter").addEventListener("click", async () => {
+    const label = $("chapter-label").value.trim();
+    if (!label) return CCBrand.toast("Give the chapter a label first.");
+    chapters.push({ timeSec: $("preview").currentTime, label });
+    chapters.sort((a, b) => a.timeSec - b.timeSec);
+    $("chapter-label").value = "";
+    await saveChapters();
+    renderChapterList();
+  });
 
   $("btn-download").addEventListener("click", () => {
     const a = document.createElement("a");

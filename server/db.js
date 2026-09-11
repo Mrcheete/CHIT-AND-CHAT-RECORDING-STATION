@@ -55,6 +55,15 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_translations_recording ON translations(recording_id);
 
+  CREATE TABLE IF NOT EXISTS chapters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recording_id TEXT NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
+    time_sec REAL NOT NULL,
+    label TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_chapters_recording ON chapters(recording_id, time_sec);
+
   CREATE TABLE IF NOT EXISTS send_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     recording_id TEXT,
