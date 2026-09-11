@@ -383,6 +383,26 @@ async function toggleVoiceoverRecording() {
   btn.classList.add("btn-danger");
 }
 
+async function cleanUpAudio() {
+  const btn = $("btn-audio-cleanup");
+  const status = $("audio-cleanup-status");
+  btn.disabled = true;
+  status.textContent = "Cleaning up audio on the server…";
+  try {
+    const saved = await CCApi.json(`/api/recordings/${currentRecording.id}/audio-cleanup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: `${currentRecording.title} (audio cleaned up)` }),
+    });
+    status.textContent = "Saved as a new recording in your library.";
+    CCBrand.toast("Audio cleanup complete.");
+    setTimeout(() => (window.location.href = `editor.html?id=${saved.id}`), 900);
+  } catch (err) {
+    status.textContent = "Audio cleanup failed: " + err.message;
+    btn.disabled = false;
+  }
+}
+
 async function translateVideo() {
   const status = $("translate-status");
   status.textContent = "Translating… this can take a while for longer videos.";
@@ -431,6 +451,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-vo-remove").addEventListener("click", removeVoiceover);
   $("btn-apply").addEventListener("click", applyEditsAndRender);
   $("btn-translate").addEventListener("click", translateVideo);
+  $("btn-audio-cleanup").addEventListener("click", cleanUpAudio);
 
   $("btn-download").addEventListener("click", () => {
     const a = document.createElement("a");

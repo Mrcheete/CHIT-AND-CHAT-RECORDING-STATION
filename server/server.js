@@ -511,6 +511,48 @@ app.post(
   })
 );
 
+// -------------------------------------------------------------- audio cleanup
+// One-click noise reduction (afftdn — a general spectral denoiser, no manual
+// noise-sample step needed) + loudness normalization (loudnorm), leaving the
+// video stream untouched. The audio codec has to match the container the
+// video stream is being copied into unchanged (WebM can't hold AAC, MP4
+// doesn't take Opus), so it's picked from the source's own mime type rather
+// than hardcoded.
+app.post(
+  "/api/recordings/:id/audio-cleanup",
+  requireAuth,
+  expensiveLimiter,
+  asyncRoute(async (req, res) => {
+    const rec = db.prepare("SELECT * FROM recordings WHERE id = ?").get(req.params.id);
+    if (!rec) return res.status(404).json({ error: "not found" });
+    if (rec.status !== "finalized") return res.status(400).json({ error: "recording isn't finalized yet" });
+
+    const sourcePath = path.join(UPLOAD_DIR, rec.file_path);
+    const outExt = extFor("", rec.mime_type);
+    const audioCodec = outExt === ".webm" ? "libopus" : "aac";
+    const outFilename = `${crypto.randomUUID()}${outExt}`;
+    const outPath = path.join(UPLOAD_DIR, outFilename);
+
+    await new Promise((resolve, reject) => {
+      ffmpeg(sourcePath)
+        .audioFilters(["afftdn", "loudnorm"])
+        .outputOptions(["-c:v copy", `-c:a ${audioCodec}`])
+        .save(outPath)
+        .on("end", resolve)
+        .on("error", reject);
+    });
+
+    const fileSize = fs.statSync(outPath).size;
+    const id = crypto.randomUUID();
+    const title = req.body.title || `${rec.title} (audio cleaned up)`;
+    db.prepare(
+      "INSERT INTO recordings (id, title, type, duration_sec, mime_type, file_path, file_size, edited, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'finalized', ?)"
+    ).run(id, title, rec.type, rec.duration_sec, rec.mime_type, outFilename, fileSize, Date.now());
+
+    res.status(201).json(toRecordingDTO(db.prepare("SELECT * FROM recordings WHERE id = ?").get(id)));
+  })
+);
+
 // -------------------------------------------------------------- translate
 app.post(
   "/api/translate",
