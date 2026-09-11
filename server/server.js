@@ -43,6 +43,10 @@ if (!sessionSecret) {
 
 const app = express();
 app.disable("x-powered-by");
+// Railway (and most PaaS hosts) terminate HTTPS at their edge and forward to
+// the app over plain HTTP — without this, Express sees every request as
+// insecure, and the secure session cookie below silently fails to persist.
+app.set("trust proxy", 1);
 app.use(express.json());
 app.use(
   cookieSession({
