@@ -34,7 +34,10 @@ document.addEventListener("DOMContentLoaded", () => {
       wb.setTool(btn.dataset.tool);
     });
   });
-  document.getElementById("btn-add-text").addEventListener("click", () => wb.addText());
+  document.getElementById("btn-add-text").addEventListener("click", () => {
+    wb.addText();
+    CCBrand.toast("Type your text, then click elsewhere on the board — you can then drag it into place.");
+  });
   document.getElementById("btn-add-image").addEventListener("click", () => document.getElementById("image-input").click());
   document.getElementById("image-input").addEventListener("change", (e) => {
     if (e.target.files[0]) wb.addImage(e.target.files[0]);

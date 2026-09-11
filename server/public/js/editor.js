@@ -1,4 +1,3 @@
-const { createFFmpeg, fetchFile } = FFmpeg;
 const params = new URLSearchParams(location.search);
 const RECORDING_ID = params.get("id");
 
@@ -9,6 +8,8 @@ let voiceoverBlob = null;
 let voRecorder = null;
 let musicFile = null;
 let ffmpeg = null;
+let timelineDragStart = null; // seconds, while dragging a new cut on the timeline
+let timelineDragCurrent = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -19,9 +20,19 @@ function fmtTime(sec) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+let fetchFile; // resolved lazily below, once the CDN's FFmpeg global is confirmed present
+
 async function ensureFFmpeg(onProgress) {
   if (ffmpeg) return ffmpeg;
-  ffmpeg = createFFmpeg({
+  // The FFmpeg global comes from a CDN <script> tag — reading it only here
+  // (not at page load) means a CDN hiccup only breaks this one feature
+  // (voice-over/music mixing, intro clips, format export) instead of
+  // crashing the whole editor page before anything else can run.
+  if (typeof FFmpeg === "undefined") {
+    throw new Error("The video editor couldn't load (check your internet connection and reload) — cuts-only trims still work fine without it.");
+  }
+  fetchFile = FFmpeg.fetchFile;
+  ffmpeg = FFmpeg.createFFmpeg({
     log: true,
     corePath: "https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js",
     progress: ({ ratio }) => onProgress && onProgress(Math.min(1, Math.max(0, ratio))),
@@ -43,26 +54,94 @@ function setProgress(ratio) {
 function renderCutList() {
   const list = $("cut-list");
   if (!cuts.length) {
-    list.innerHTML = `<p class="script-note">No cuts marked yet — play the video, mark a start and end around a mistake, then "Add cut".</p>`;
-    return;
+    list.innerHTML = `<p class="script-note">No cuts marked yet — drag on the bar above (or play the video, mark a start and end), then "Add cut".</p>`;
+  } else {
+    list.innerHTML = "";
+    cuts
+      .sort((a, b) => a.start - b.start)
+      .forEach((c, i) => {
+        const row = document.createElement("div");
+        row.className = "clip-row";
+        row.innerHTML = `<span>✂️ ${fmtTime(c.start)} → ${fmtTime(c.end)}</span><span class="spacer"></span>`;
+        const rm = document.createElement("button");
+        rm.className = "btn btn-sm btn-ghost";
+        rm.textContent = "Remove";
+        rm.onclick = () => {
+          cuts.splice(i, 1);
+          renderCutList();
+        };
+        row.appendChild(rm);
+        list.appendChild(row);
+      });
   }
-  list.innerHTML = "";
-  cuts
-    .sort((a, b) => a.start - b.start)
-    .forEach((c, i) => {
-      const row = document.createElement("div");
-      row.className = "clip-row";
-      row.innerHTML = `<span>✂️ ${fmtTime(c.start)} → ${fmtTime(c.end)}</span><span class="spacer"></span>`;
-      const rm = document.createElement("button");
-      rm.className = "btn btn-sm btn-ghost";
-      rm.textContent = "Remove";
-      rm.onclick = () => {
-        cuts.splice(i, 1);
-        renderCutList();
-      };
-      row.appendChild(rm);
-      list.appendChild(row);
+  renderTimeline();
+}
+
+function renderTimeline() {
+  const track = $("cut-timeline");
+  const duration = $("preview").duration || 0;
+  track.querySelectorAll(".timeline-cut").forEach((el) => el.remove());
+  if (!duration) return;
+
+  cuts.forEach((c, i) => {
+    const rect = document.createElement("div");
+    rect.className = "timeline-cut";
+    rect.style.left = `${(c.start / duration) * 100}%`;
+    rect.style.width = `${Math.max(0.3, ((c.end - c.start) / duration) * 100)}%`;
+    rect.title = `${fmtTime(c.start)} → ${fmtTime(c.end)} — click to remove`;
+    rect.addEventListener("click", (e) => {
+      e.stopPropagation();
+      cuts.splice(i, 1);
+      renderCutList();
     });
+    track.appendChild(rect);
+  });
+
+  if (timelineDragStart !== null && timelineDragCurrent !== null) {
+    const s = Math.min(timelineDragStart, timelineDragCurrent);
+    const e = Math.max(timelineDragStart, timelineDragCurrent);
+    const preview = document.createElement("div");
+    preview.className = "timeline-cut timeline-cut-preview";
+    preview.style.left = `${(s / duration) * 100}%`;
+    preview.style.width = `${((e - s) / duration) * 100}%`;
+    track.appendChild(preview);
+  }
+}
+
+function timelineTimeFromEvent(e) {
+  const track = $("cut-timeline");
+  const rect = track.getBoundingClientRect();
+  const x = Math.min(Math.max(e.clientX - rect.left, 0), rect.width);
+  const duration = $("preview").duration || 0;
+  return rect.width ? (x / rect.width) * duration : 0;
+}
+
+function setupTimeline() {
+  const track = $("cut-timeline");
+  track.addEventListener("pointerdown", (e) => {
+    if (!$("preview").duration) return;
+    timelineDragStart = timelineTimeFromEvent(e);
+    timelineDragCurrent = timelineDragStart;
+    renderTimeline();
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (timelineDragStart === null) return;
+    timelineDragCurrent = timelineTimeFromEvent(e);
+    renderTimeline();
+  });
+  window.addEventListener("pointerup", () => {
+    if (timelineDragStart === null) return;
+    const s = Math.min(timelineDragStart, timelineDragCurrent);
+    const e = Math.max(timelineDragStart, timelineDragCurrent);
+    timelineDragStart = null;
+    timelineDragCurrent = null;
+    if (e - s > 0.15) {
+      cuts.push({ start: s, end: e });
+      renderCutList();
+    } else {
+      renderTimeline();
+    }
+  });
 }
 
 function keepSegments(duration, cutRanges) {
@@ -94,8 +173,11 @@ async function loadRecordingIntoEditor() {
   $("editor-subtitle").textContent = `Editing "${currentRecording.title}"`;
   $("preview").src = currentRecording.url;
   $("preview").addEventListener("timeupdate", () => {
-    $("time-readout").textContent = `${fmtTime($("preview").currentTime)} / ${fmtTime($("preview").duration)}`;
+    const duration = $("preview").duration;
+    $("time-readout").textContent = `${fmtTime($("preview").currentTime)} / ${fmtTime(duration)}`;
+    if (duration) $("timeline-playhead").style.left = `${($("preview").currentTime / duration) * 100}%`;
   });
+  $("preview").addEventListener("loadedmetadata", () => renderTimeline());
 }
 
 async function populateIntroOptions() {
@@ -184,9 +266,18 @@ async function applyEditsAndRender() {
 
     if (voiceoverBlob) {
       ff.FS("writeFile", "voiceover.webm", await fetchFile(voiceoverBlob));
+      const trimStart = Number($("vo-trim-start").value) || 0;
+      const trimEndRaw = $("vo-trim-end").value;
+      const trimEnd = trimEndRaw ? Number(trimEndRaw) : null;
+      const voFilter =
+        trimEnd && trimEnd > trimStart
+          ? `[1:a]atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS[vo]`
+          : trimStart > 0
+            ? `[1:a]atrim=start=${trimStart},asetpts=PTS-STARTPTS[vo]`
+            : `[1:a]anull[vo]`;
       await ff.run(
         "-i", current, "-i", "voiceover.webm",
-        "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+        "-filter_complex", `${voFilter};[0:a][vo]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
         "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "merged_vo.mp4"
       );
       current = "merged_vo.mp4";
@@ -242,12 +333,40 @@ async function applyEditsAndRender() {
   }
 }
 
+function showVoiceoverPreview() {
+  const url = URL.createObjectURL(voiceoverBlob);
+  const audio = $("vo-preview");
+  audio.src = url;
+  audio.style.display = "block";
+  $("vo-actions").style.display = "flex";
+  $("vo-trim-fields").style.display = "flex";
+  $("vo-trim-start").value = "0";
+  audio.addEventListener(
+    "loadedmetadata",
+    () => {
+      $("vo-trim-end").value = Math.round(audio.duration * 10) / 10;
+    },
+    { once: true }
+  );
+}
+
+function removeVoiceover() {
+  voiceoverBlob = null;
+  const audio = $("vo-preview");
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.style.display = "none";
+  $("vo-actions").style.display = "none";
+  $("vo-trim-fields").style.display = "none";
+}
+
 async function toggleVoiceoverRecording() {
   const btn = $("btn-vo-record");
   if (voRecorder && voRecorder.state === "recording") {
     voRecorder.stop();
     return;
   }
+  if (voiceoverBlob) removeVoiceover();
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   const chunks = [];
   voRecorder = new MediaRecorder(stream);
@@ -257,7 +376,7 @@ async function toggleVoiceoverRecording() {
     stream.getTracks().forEach((t) => t.stop());
     btn.textContent = "● Record voice-over";
     btn.classList.remove("btn-danger");
-    $("vo-status").style.display = "inline-block";
+    showVoiceoverPreview();
   };
   voRecorder.start();
   btn.textContent = "■ Stop recording";
@@ -286,6 +405,7 @@ async function translateVideo() {
 document.addEventListener("DOMContentLoaded", async () => {
   CCBrand.renderHeader("editor.html");
   renderCutList();
+  setupTimeline();
   await loadRecordingIntoEditor();
   await populateIntroOptions();
 
@@ -307,6 +427,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   $("music-file").addEventListener("change", (e) => (musicFile = e.target.files[0] || null));
   $("btn-vo-record").addEventListener("click", toggleVoiceoverRecording);
+  $("btn-vo-rerecord").addEventListener("click", toggleVoiceoverRecording);
+  $("btn-vo-remove").addEventListener("click", removeVoiceover);
   $("btn-apply").addEventListener("click", applyEditsAndRender);
   $("btn-translate").addEventListener("click", translateVideo);
 

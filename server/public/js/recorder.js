@@ -95,7 +95,24 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
       outputCtx.restore();
     }
 
+    drawWatermark(w, h);
     rafId = requestAnimationFrame(drawFrame);
+  }
+
+  // A faint ownership mark baked into every recorded frame — subtle enough
+  // not to distract a student watching, but there in the pixels themselves
+  // (not an overlay a re-upload could just crop away) as proof this lesson
+  // is yours if it ever turns up somewhere it shouldn't.
+  function drawWatermark(w, h) {
+    const name = (window.CCBrand && window.CCBrand.loadBrand().name) || "Chit & Chat";
+    outputCtx.save();
+    outputCtx.globalAlpha = 0.07;
+    outputCtx.fillStyle = "#1a1433";
+    outputCtx.font = `${Math.max(12, Math.round(w * 0.022))}px Inter, sans-serif`;
+    outputCtx.textAlign = "right";
+    outputCtx.textBaseline = "bottom";
+    outputCtx.fillText(name, w - 14, h - 10);
+    outputCtx.restore();
   }
 
   async function start() {

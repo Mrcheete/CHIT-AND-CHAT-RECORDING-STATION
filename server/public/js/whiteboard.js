@@ -59,7 +59,16 @@ function createWhiteboard(canvasEl) {
     }
   }
 
+  // A colour swatch click recolours whatever text box is currently selected
+  // (so you can fix a text's colour after placing it, not just at creation),
+  // and falls back to changing the pen colour otherwise.
   function setPenColor(hex) {
+    const active = canvas.getActiveObject();
+    if (active && active.type === "textbox") {
+      active.set("fill", hex);
+      canvas.requestRenderAll();
+      return;
+    }
     canvas._lastPenColor = hex;
     canvas.freeDrawingBrush.color = hex;
   }
@@ -78,9 +87,23 @@ function createWhiteboard(canvasEl) {
       fill: canvas._lastPenColor || "#1a1a2e",
       fontFamily: "Inter, sans-serif",
       editable: true,
+      selectable: true,
+      hasControls: true,
     });
     canvas.add(t);
     canvas.setActiveObject(t);
+    // While isEditing is true, Fabric treats clicks/drags on the text as
+    // placing the cursor or selecting characters — not moving the object —
+    // which is exactly why dragging right after typing does nothing. The
+    // click that exits editing (anywhere outside the box) also clears the
+    // selection entirely, so without this the very next click would just
+    // select the box (still no drag) and only the one after that could
+    // finally move it. Re-selecting it the instant editing exits collapses
+    // that down to: click away once, then drag.
+    t.on("editing:exited", () => {
+      canvas.setActiveObject(t);
+      canvas.requestRenderAll();
+    });
     t.enterEditing();
   }
 

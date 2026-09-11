@@ -28,3 +28,46 @@
   border-radius: 8px; padding: 8px; max-height: 140px; overflow-y: auto; white-space: pre-wrap;
 }
 @media (max-width: 900px) { .editor-layout { grid-template-columns: 1fr; } }
+
+.cut-timeline-wrap { margin-top: 12px; }
+.cut-timeline {
+  position: relative;
+  height: 40px;
+  background: var(--brand-bg);
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  cursor: crosshair;
+  user-select: none;
+  overflow: hidden;
+}
+.timeline-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(230, 57, 70, 0.35);
+  border-left: 2px solid var(--brand-danger);
+  border-right: 2px solid var(--brand-danger);
+  cursor: pointer;
+}
+.timeline-cut:hover { background: rgba(230, 57, 70, 0.55); }
+.timeline-cut-preview {
+  background: rgba(86, 66, 160, 0.35);
+  border-left: 2px solid var(--brand-primary);
+  border-right: 2px solid var(--brand-primary);
+  pointer-events: none;
+}
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--brand-ink);
+  pointer-events: none;
+}
+.timeline-hint { font-size: 0.75rem; color: #8a8a99; margin-top: 4px; }
+
+.vo-preview { width: 100%; margin-top: 8px; }
+.vo-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.vo-trim-fields { display: flex; gap: 8px; margin-top: 8px; }
+.vo-trim-fields .field { flex: 1; margin: 0; }
+.vo-trim-fields label { font-size: 0.75rem; }
