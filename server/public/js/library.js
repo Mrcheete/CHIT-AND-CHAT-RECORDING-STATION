@@ -52,6 +52,7 @@ function cardFor(rec) {
     <div class="meta">${meta}</div>
     <div class="actions">
       <a class="btn btn-sm btn-outline" href="editor.html?id=${rec.id}">Edit</a>
+      <button class="btn btn-sm btn-primary" data-action="copy-link">🔗 Copy link</button>
       <a class="btn btn-sm btn-secondary" href="${rec.url}" download>Download</a>
       <button class="btn btn-sm btn-outline" data-action="send">Send</button>
       <button class="btn btn-sm btn-outline" data-action="rename">Rename</button>
@@ -77,6 +78,14 @@ function cardFor(rec) {
     }
   `;
 
+  div.querySelector('[data-action="copy-link"]').addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(rec.url);
+      CCBrand.toast("Link copied — paste it wherever you need it.");
+    } catch (err) {
+      window.prompt("Copy this link:", rec.url);
+    }
+  });
   div.querySelector('[data-action="send"]').addEventListener("click", () => {
     window.location.href = `students.html?send=${rec.id}`;
   });

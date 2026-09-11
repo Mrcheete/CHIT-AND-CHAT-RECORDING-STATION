@@ -512,6 +512,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderChapterList();
   });
 
+  $("btn-copy-link").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(currentRecording.url);
+      CCBrand.toast("Link copied — paste it wherever you need it.");
+    } catch (err) {
+      // Clipboard access can be blocked (older browser, non-HTTPS, etc.) —
+      // fall back to a selectable prompt so the link is still reachable.
+      window.prompt("Copy this link:", currentRecording.url);
+    }
+  });
   $("btn-download").addEventListener("click", () => {
     const a = document.createElement("a");
     a.href = currentRecording.url;
