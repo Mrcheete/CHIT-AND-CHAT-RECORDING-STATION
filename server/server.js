@@ -27,7 +27,7 @@ const { requireAuth, verifyLogin } = require("./auth");
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PORT = process.env.PORT || 8787;
-const PUBLIC_DIR = path.join(__dirname, "..", "public");
+const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
