@@ -92,14 +92,43 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("chk-hide-recording").addEventListener("change", (e) => tp.setHideWhileRecording(e.target.checked));
 
   // ---- Camera / layout ----
+  const camSelect = document.getElementById("camera-select");
+  const micSelect = document.getElementById("mic-select");
+
+  async function populateDeviceSelects() {
+    const { cameras, mics } = await rec.listDevices();
+    camSelect.innerHTML = cameras.map((d, i) => `<option value="${d.deviceId}">${d.label || `Camera ${i + 1}`}</option>`).join("");
+    micSelect.innerHTML = mics.map((d, i) => `<option value="${d.deviceId}">${d.label || `Microphone ${i + 1}`}</option>`).join("");
+    // Only worth showing a picker if there's actually a choice to make —
+    // most laptops have exactly one of each, and an extra dropdown for
+    // "the only camera you have" is just clutter.
+    camSelect.style.display = cameras.length > 1 ? "inline-block" : "none";
+    micSelect.style.display = mics.length > 1 ? "inline-block" : "none";
+  }
+
   document.getElementById("btn-enable-cam").addEventListener("click", async (e) => {
     try {
       await rec.requestCamera();
       e.target.textContent = "Camera ready ✓";
       e.target.disabled = true;
       document.getElementById("btn-record").disabled = false;
+      await populateDeviceSelects();
     } catch (err) {
       CCBrand.toast("Couldn't access camera/mic: " + err.message);
+    }
+  });
+  camSelect.addEventListener("change", async () => {
+    try {
+      await rec.requestCamera({ videoDeviceId: camSelect.value, audioDeviceId: micSelect.value || undefined });
+    } catch (err) {
+      CCBrand.toast("Couldn't switch camera: " + err.message);
+    }
+  });
+  micSelect.addEventListener("change", async () => {
+    try {
+      await rec.requestCamera({ videoDeviceId: camSelect.value || undefined, audioDeviceId: micSelect.value });
+    } catch (err) {
+      CCBrand.toast("Couldn't switch microphone: " + err.message);
     }
   });
   document.getElementById("layout-select").addEventListener("change", (e) => {

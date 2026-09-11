@@ -47,14 +47,27 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
   function on(evt, fn) { listeners[evt].push(fn); }
   function emit(evt, payload) { listeners[evt].forEach((fn) => fn(payload)); }
 
-  async function requestCamera({ video = true, audio = true } = {}) {
+  async function requestCamera({ video = true, audio = true, videoDeviceId, audioDeviceId } = {}) {
+    // Stop whatever's currently open first — switching devices without this
+    // leaves the old camera/mic silently still held open in the background.
+    if (camStream) camStream.getTracks().forEach((t) => t.stop());
     camStream = await navigator.mediaDevices.getUserMedia({
-      video: video ? { width: 640, height: 480 } : false,
-      audio,
+      video: video ? { width: 640, height: 480, ...(videoDeviceId ? { deviceId: { exact: videoDeviceId } } : {}) } : false,
+      audio: audio ? (audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true) : false,
     });
     videoPreviewEl.srcObject = camStream;
     await videoPreviewEl.play();
     return camStream;
+  }
+
+  // Device labels only populate after permission has been granted at least
+  // once, so this is only useful to call after requestCamera() has succeeded.
+  async function listDevices() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return {
+      cameras: devices.filter((d) => d.kind === "videoinput"),
+      mics: devices.filter((d) => d.kind === "audioinput"),
+    };
   }
 
   function stopCamera() {
@@ -231,6 +244,7 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
 
   return {
     requestCamera,
+    listDevices,
     stopCamera,
     setLayout,
     start,
