@@ -65,6 +65,11 @@ document.addEventListener("DOMContentLoaded", () => {
     swatchesEl.appendChild(s);
   });
 
+  document.getElementById("custom-color").addEventListener("input", (e) => {
+    wb.setPenColor(e.target.value);
+    document.querySelectorAll(".swatch").forEach((el) => el.classList.remove("active"));
+  });
+
   // ---- Teleprompter ----
   const tp = createTeleprompter({ panelEl: document.getElementById("script-panel"), textEl: document.getElementById("script-text") });
   document.getElementById("btn-script-top").addEventListener("click", () => {
