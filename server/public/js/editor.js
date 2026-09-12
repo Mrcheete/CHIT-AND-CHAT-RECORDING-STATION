@@ -40,7 +40,7 @@ function fmtTime(sec) {
 let fetchFile; // resolved lazily below, once the CDN's FFmpeg global is confirmed present
 
 async function ensureFFmpeg(onProgress) {
-  if (ffmpeg) return ffmpeg;
+  if (ffmpeg && ffmpeg.isLoaded()) return ffmpeg;
   // The FFmpeg global comes from a CDN <script> tag — reading it only here
   // (not at page load) means a CDN hiccup only breaks this one feature
   // (voice-over/music mixing, intro clips, format export) instead of
@@ -49,18 +49,25 @@ async function ensureFFmpeg(onProgress) {
     throw new Error("The video editor couldn't load (check your internet connection and reload) — cuts-only trims still work fine without it.");
   }
   fetchFile = FFmpeg.fetchFile;
-  ffmpeg = FFmpeg.createFFmpeg({
+  const instance = FFmpeg.createFFmpeg({
     log: true,
     corePath: "https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js",
     progress: ({ ratio }) => onProgress && onProgress(Math.min(1, Math.max(0, ratio))),
   });
   const logEl = $("ffmpeg-log");
   logEl.style.display = "block";
-  ffmpeg.setLogger(({ message }) => {
+  instance.setLogger(({ message }) => {
     logEl.textContent += message + "\n";
     logEl.scrollTop = logEl.scrollHeight;
   });
-  await ffmpeg.load();
+  // Only assign the shared `ffmpeg` variable once load() actually succeeds —
+  // if it's assigned beforehand and load() then fails partway (a slow/blocked
+  // CDN, a dropped connection), every render attempt afterward sees a
+  // non-null `ffmpeg` above and skips loading entirely, straight into
+  // "ffmpeg.wasm is not ready" on the very first command — permanently, for
+  // the rest of the page's life, since nothing here ever went back to null.
+  await instance.load();
+  ffmpeg = instance;
   return ffmpeg;
 }
 
