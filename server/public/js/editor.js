@@ -14,6 +14,19 @@ let chapters = []; // [{id, timeSec, label}]
 
 const $ = (id) => document.getElementById(id);
 
+// Some recorded WebM files never got a proper duration written into their
+// header (a known MediaRecorder quirk) — the video element then reports
+// Infinity until manually seeked near the end, which silently poisons any
+// cut/segment math built on it (Infinity survives arithmetic fine, but
+// becomes `null` the moment it's JSON.stringify'd for the server, which is
+// exactly what "segments must be ... pairs with end > start" was seeing).
+// The duration recorded at upload time is reliable, so fall back to it.
+function getVideoDuration() {
+  const d = $("preview").duration;
+  if (Number.isFinite(d) && d > 0) return d;
+  return currentRecording?.durationSec || 0;
+}
+
 function fmtTime(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
   const m = Math.floor(sec / 60);
@@ -80,7 +93,7 @@ function renderCutList() {
 
 function renderTimeline() {
   const track = $("cut-timeline");
-  const duration = $("preview").duration || 0;
+  const duration = getVideoDuration();
   track.querySelectorAll(".timeline-cut").forEach((el) => el.remove());
   if (!duration) return;
 
@@ -113,14 +126,14 @@ function timelineTimeFromEvent(e) {
   const track = $("cut-timeline");
   const rect = track.getBoundingClientRect();
   const x = Math.min(Math.max(e.clientX - rect.left, 0), rect.width);
-  const duration = $("preview").duration || 0;
+  const duration = getVideoDuration();
   return rect.width ? (x / rect.width) * duration : 0;
 }
 
 function setupTimeline() {
   const track = $("cut-timeline");
   track.addEventListener("pointerdown", (e) => {
-    if (!$("preview").duration) return;
+    if (!getVideoDuration()) return;
     timelineDragStart = timelineTimeFromEvent(e);
     timelineDragCurrent = timelineDragStart;
     renderTimeline();
@@ -175,7 +188,7 @@ async function loadRecordingIntoEditor() {
   $("preview").src = currentRecording.url;
   $("preview").addEventListener("timeupdate", () => {
     const preview = $("preview");
-    const duration = preview.duration;
+    const duration = getVideoDuration();
     $("time-readout").textContent = `${fmtTime(preview.currentTime)} / ${fmtTime(duration)}`;
     if (duration) $("timeline-playhead").style.left = `${(preview.currentTime / duration) * 100}%`;
 
@@ -280,7 +293,7 @@ async function applyEditsAndRender() {
   if (cutsOnly) {
     applyBtn.disabled = true;
     try {
-      const segments = keepSegments($("preview").duration, cuts);
+      const segments = keepSegments(getVideoDuration(), cuts);
       if (!segments.length) throw new Error("those cuts remove the entire video");
       CCBrand.toast("Trimming on the server…");
       const saved = await CCApi.json(`/api/recordings/${currentRecording.id}/trim`, {
@@ -303,7 +316,7 @@ async function applyEditsAndRender() {
   setProgress(0);
   try {
     const ff = await ensureFFmpeg(setProgress);
-    const duration = $("preview").duration;
+    const duration = getVideoDuration();
     const inputExt = extFor(currentRecording.mimeType);
     ff.FS("writeFile", `input.${inputExt}`, await fetchFile(currentRecording.url));
 
