@@ -71,6 +71,39 @@ async function ensureFFmpeg(onProgress) {
   return ffmpeg;
 }
 
+// ffmpeg.wasm's run() does NOT reject when the real ffmpeg process fails
+// internally (a bad filtergraph, an unsupported stream, anything) — it just
+// logs the error and resolves normally, as if nothing went wrong. Left
+// unchecked, a failed step would either surface as a confusing error several
+// steps later, or — since the same ffmpeg instance's virtual filesystem now
+// persists across repeated Apply & Render attempts — silently read back a
+// STALE file of the same name left over from an earlier, actually-successful
+// attempt, shipping old content (or none) as if the latest render worked.
+// clearOutput() removes any leftover file before a step runs, so a failure
+// can't hide behind old data; readOutput() then confirms the step actually
+// produced something real, or throws a clear, specific error instead of
+// silently continuing with whatever happens to exist.
+function clearOutput(ff, filename) {
+  try {
+    ff.FS("unlink", filename);
+  } catch {
+    // wasn't there — nothing to clear
+  }
+}
+
+function readOutput(ff, filename, stepLabel) {
+  let data;
+  try {
+    data = ff.FS("readFile", filename);
+  } catch {
+    throw new Error(`${stepLabel} didn't produce any output — check the render log above for the actual ffmpeg error.`);
+  }
+  if (!data || data.length === 0) {
+    throw new Error(`${stepLabel} produced an empty file — check the render log above for the actual ffmpeg error.`);
+  }
+  return data;
+}
+
 function setProgress(ratio) {
   $("progress-fill").style.width = `${Math.round(ratio * 100)}%`;
 }
@@ -462,7 +495,9 @@ async function applyEditsAndRender() {
         args.push("-vf", `setpts=PTS/${speed}`, "-af", buildAtempoChain(speed).map((f) => `atempo=${f}`).join(","));
       }
       args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", out);
+      clearOutput(ff, out);
       await ff.run(...args);
+      readOutput(ff, out, `Trimming piece ${i + 1}`);
       segFiles.push(out);
     }
 
@@ -471,13 +506,17 @@ async function applyEditsAndRender() {
       const introRec = await CCApi.json(`/api/recordings/${introId}`);
       const iExt = extFor(introRec.mimeType);
       ff.FS("writeFile", `intro.${iExt}`, await fetchFile(introRec.url));
+      clearOutput(ff, "intro_seg.mp4");
       await ff.run("-i", `intro.${iExt}`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", "intro_seg.mp4");
+      readOutput(ff, "intro_seg.mp4", "Encoding the intro clip");
       segFiles.unshift("intro_seg.mp4");
     }
 
     const listTxt = segFiles.map((f) => `file '${f}'`).join("\n");
     ff.FS("writeFile", "list.txt", new TextEncoder().encode(listTxt));
+    clearOutput(ff, "merged.mp4");
     await ff.run("-f", "concat", "-safe", "0", "-i", "list.txt", "-c", "copy", "merged.mp4");
+    readOutput(ff, "merged.mp4", "Joining the trimmed pieces");
     let current = "merged.mp4";
 
     if (voiceovers.length) {
@@ -513,7 +552,9 @@ async function applyEditsAndRender() {
         "-filter_complex", filterParts.join(";"),
         "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "merged_vo.mp4"
       );
+      clearOutput(ff, "merged_vo.mp4");
       await ff.run(...args);
+      readOutput(ff, "merged_vo.mp4", "Mixing in the voice-over(s)");
       current = "merged_vo.mp4";
     }
 
@@ -521,25 +562,29 @@ async function applyEditsAndRender() {
       const mExt = musicFile.name.split(".").pop();
       ff.FS("writeFile", `music.${mExt}`, await fetchFile(musicFile));
       const vol = Number($("music-volume").value) / 100;
+      clearOutput(ff, "merged_music.mp4");
       await ff.run(
         "-i", current, "-i", `music.${mExt}`,
         "-filter_complex", `[1:a]volume=${vol}[m];[0:a][m]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
         "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "merged_music.mp4"
       );
+      readOutput(ff, "merged_music.mp4", "Mixing in the background music");
       current = "merged_music.mp4";
     }
 
     const format = $("export-format").value;
     let finalFile = current;
     if (format === "webm") {
+      clearOutput(ff, "output.webm");
       await ff.run("-i", current, "-c:v", "libvpx-vp9", "-c:a", "libopus", "output.webm");
       finalFile = "output.webm";
     } else {
+      clearOutput(ff, "output.mp4");
       await ff.run("-i", current, "-c", "copy", "output.mp4");
       finalFile = "output.mp4";
     }
 
-    const data = ff.FS("readFile", finalFile);
+    const data = readOutput(ff, finalFile, "The final export step");
     const mimeType = format === "webm" ? "video/webm" : "video/mp4";
     const outBlob = new Blob([data.buffer], { type: mimeType });
 
