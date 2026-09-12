@@ -564,6 +564,82 @@ app.post(
   })
 );
 
+// ----------------------------------------------------------------- combine
+// Joins two or more existing recordings (an upload from a computer, a
+// Studio recording, a translation — anything already in the Library) end
+// to end, in the order given, into one new recording. Each source is
+// re-encoded to the same codec first, same as every segment already is in
+// /trim above, since the concat demuxer's fast `-c copy` path only works
+// when everything being joined already matches — these can otherwise be
+// entirely different formats (an .mp4 from a phone next to a recorded
+// .webm, say).
+app.post(
+  "/api/recordings/combine",
+  requireAuth,
+  expensiveLimiter,
+  asyncRoute(async (req, res) => {
+    const recordingIds = Array.isArray(req.body.recordingIds) ? req.body.recordingIds : [];
+    if (recordingIds.length < 2) {
+      return res.status(400).json({ error: "pick at least two recordings to combine" });
+    }
+
+    const recs = recordingIds.map((id) => db.prepare("SELECT * FROM recordings WHERE id = ?").get(id));
+    const missingIndex = recs.findIndex((r) => !r);
+    if (missingIndex !== -1) {
+      return res.status(404).json({ error: `recording ${recordingIds[missingIndex]} not found` });
+    }
+    const notReady = recs.find((r) => r.status !== "finalized");
+    if (notReady) {
+      return res.status(400).json({ error: `"${notReady.title}" isn't finalized yet` });
+    }
+
+    const workDir = path.join(UPLOAD_DIR, `_work_${crypto.randomUUID()}`);
+    fs.mkdirSync(workDir, { recursive: true });
+    try {
+      const segFiles = [];
+      for (let i = 0; i < recs.length; i++) {
+        const sourcePath = path.join(UPLOAD_DIR, recs[i].file_path);
+        const segPath = path.join(workDir, `seg${i}.mp4`);
+        await new Promise((resolve, reject) => {
+          ffmpeg(sourcePath)
+            .outputOptions(["-c:v libx264", "-preset ultrafast", "-crf 23", "-c:a aac"])
+            .save(segPath)
+            .on("end", resolve)
+            .on("error", reject);
+        });
+        segFiles.push(segPath);
+      }
+
+      const listPath = path.join(workDir, "list.txt");
+      fs.writeFileSync(listPath, segFiles.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n"));
+
+      const outFilename = `${crypto.randomUUID()}.mp4`;
+      const outPath = path.join(UPLOAD_DIR, outFilename);
+      await new Promise((resolve, reject) => {
+        ffmpeg()
+          .input(listPath)
+          .inputOptions(["-f concat", "-safe 0"])
+          .outputOptions(["-c copy"])
+          .save(outPath)
+          .on("end", resolve)
+          .on("error", reject);
+      });
+
+      const fileSize = fs.statSync(outPath).size;
+      const newDurationSec = Math.round(recs.reduce((sum, r) => sum + (r.duration_sec || 0), 0));
+      const id = crypto.randomUUID();
+      const title = req.body.title || "Combined video";
+      db.prepare(
+        "INSERT INTO recordings (id, title, type, duration_sec, mime_type, file_path, file_size, edited, status, created_at) VALUES (?, ?, 'lesson', ?, 'video/mp4', ?, ?, 1, 'finalized', ?)"
+      ).run(id, title, newDurationSec, outFilename, fileSize, Date.now());
+
+      res.status(201).json(toRecordingDTO(db.prepare("SELECT * FROM recordings WHERE id = ?").get(id)));
+    } finally {
+      fs.rm(workDir, { recursive: true, force: true }, () => {});
+    }
+  })
+);
+
 // -------------------------------------------------------------- audio cleanup
 // One-click noise reduction (afftdn — a general spectral denoiser, no manual
 // noise-sample step needed) + loudness normalization (loudnorm), leaving the

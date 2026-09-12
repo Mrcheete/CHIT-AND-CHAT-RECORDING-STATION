@@ -14,6 +14,20 @@
   .lib-card .actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .lib-card .translations { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
   .lib-card-placeholder { display: flex; align-items: center; justify-content: center; height: 100px; border-radius: 8px; background: var(--brand-bg); color: #8a8a99; font-size: 0.85rem; margin-bottom: 10px; }
+  .lib-toolbar { display: flex; gap: 8px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+  .lib-toolbar .spacer, .combine-bar .spacer { flex: 1; }
+  .lib-card { position: relative; }
+  .lib-card.selectable { cursor: pointer; }
+  .lib-card.selected { outline: 3px solid var(--brand-primary); outline-offset: -3px; }
+  .lib-card-select {
+    position: absolute; top: 10px; left: 10px; width: 22px; height: 22px; z-index: 2;
+    accent-color: var(--brand-primary);
+  }
+  .combine-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; background: #fff;
+    border-top: 1px solid var(--brand-border); padding: 12px 20px;
+    display: flex; align-items: center; gap: 10px; box-shadow: 0 -2px 10px rgba(0,0,0,0.08); z-index: 50;
+  }
 </style>
 </head>
 <body>
@@ -21,12 +35,25 @@
   <div class="container">
     <h1 class="page-title">Library</h1>
     <p class="page-sub">Every recording lives here — lessons, intro clips, and translated copies.</p>
-    <div class="filter-tabs">
-      <button class="btn btn-outline active" data-filter="all">All</button>
-      <button class="btn btn-outline" data-filter="lesson">Lessons</button>
-      <button class="btn btn-outline" data-filter="intro">Intro clips</button>
+    <div class="lib-toolbar">
+      <div class="filter-tabs" style="margin:0">
+        <button class="btn btn-outline active" data-filter="all">All</button>
+        <button class="btn btn-outline" data-filter="lesson">Lessons</button>
+        <button class="btn btn-outline" data-filter="intro">Intro clips</button>
+      </div>
+      <span class="spacer"></span>
+      <input type="file" id="upload-file" accept="video/*" hidden>
+      <button class="btn btn-outline btn-sm" id="btn-upload">⬆️ Upload video</button>
+      <button class="btn btn-outline btn-sm" id="btn-combine-mode">🔗 Combine videos</button>
     </div>
     <div class="grid grid-cards" id="lib-grid"></div>
+  </div>
+  <div class="combine-bar" id="combine-bar" hidden>
+    <span id="combine-count"></span>
+    <span class="script-note">Combined in the order you selected them.</span>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost btn-sm" id="btn-combine-cancel">Cancel</button>
+    <button class="btn btn-primary btn-sm" id="btn-combine-go" disabled>Combine selected</button>
   </div>
   <script src="js/auth.js"></script>
   <script src="js/brand.js"></script>

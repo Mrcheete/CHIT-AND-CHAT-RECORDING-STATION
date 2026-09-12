@@ -1,5 +1,7 @@
 let allRecordings = [];
 let activeFilter = "all";
+let combineMode = false;
+let selectedIds = []; // in the order they were selected — that's the combine order
 
 function fmtDuration(sec) {
   sec = Math.floor(sec || 0);
@@ -46,7 +48,12 @@ function cardFor(rec) {
     return div;
   }
 
+  const selected = selectedIds.includes(rec.id);
+  if (combineMode) div.classList.add("selectable");
+  if (selected) div.classList.add("selected");
+
   div.innerHTML = `
+    ${combineMode ? `<input type="checkbox" class="lib-card-select" ${selected ? "checked" : ""}>` : ""}
     <video src="${rec.url}" controls preload="metadata"></video>
     <h4>${rec.title}</h4>
     <div class="meta">${meta}</div>
@@ -77,6 +84,16 @@ function cardFor(rec) {
         : ""
     }
   `;
+
+  if (combineMode) {
+    const checkbox = div.querySelector(".lib-card-select");
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selectedIds.push(rec.id);
+      else selectedIds = selectedIds.filter((id) => id !== rec.id);
+      div.classList.toggle("selected", checkbox.checked);
+      updateCombineBar();
+    });
+  }
 
   div.querySelector('[data-action="copy-link"]').addEventListener("click", async () => {
     try {
@@ -137,9 +154,95 @@ async function load() {
   }
 }
 
+function updateCombineBar() {
+  const bar = document.getElementById("combine-bar");
+  const count = document.getElementById("combine-count");
+  const goBtn = document.getElementById("btn-combine-go");
+  bar.hidden = !combineMode;
+  if (!combineMode) return;
+  count.textContent =
+    selectedIds.length === 0
+      ? "Tap videos to select them"
+      : `${selectedIds.length} selected${selectedIds.length === 1 ? " — pick at least one more" : ""}`;
+  goBtn.disabled = selectedIds.length < 2;
+}
+
+function setCombineMode(on) {
+  combineMode = on;
+  if (!on) selectedIds = [];
+  document.getElementById("btn-combine-mode").classList.toggle("active", on);
+  updateCombineBar();
+  render();
+}
+
+// Read straight off the file the browser just picked — no upload needed
+// first just to find out how long it is.
+function readDurationFromFile(file) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(video.src);
+      resolve(Number.isFinite(video.duration) ? video.duration : 0);
+    };
+    video.onerror = () => resolve(0);
+    video.src = URL.createObjectURL(file);
+  });
+}
+
+async function uploadVideoFile(file) {
+  CCBrand.toast(`Uploading "${file.name}"…`);
+  const durationSec = await readDurationFromFile(file);
+  const form = new FormData();
+  form.append("video", file);
+  form.append("title", file.name.replace(/\.[^./]+$/, "") || "Uploaded video");
+  form.append("type", "lesson");
+  form.append("durationSec", durationSec);
+  form.append("mimeType", file.type || "video/mp4");
+  try {
+    await CCApi.json("/api/recordings", { method: "POST", body: form });
+    CCBrand.toast("Uploaded — added to your library.");
+    load();
+  } catch (err) {
+    CCBrand.toast("Upload failed: " + err.message);
+  }
+}
+
+async function combineSelected() {
+  const goBtn = document.getElementById("btn-combine-go");
+  const title = prompt("Title for the combined video:", "Combined video");
+  if (!title) return;
+  goBtn.disabled = true;
+  CCBrand.toast("Combining on the server — this can take a minute for longer videos…");
+  try {
+    const saved = await CCApi.json("/api/recordings/combine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recordingIds: selectedIds, title }),
+    });
+    CCBrand.toast("Combined — added to your library.");
+    setCombineMode(false);
+    window.location.href = `editor.html?id=${saved.id}`;
+  } catch (err) {
+    CCBrand.toast("Couldn't combine those: " + err.message);
+    goBtn.disabled = false;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   CCBrand.renderHeader("library.html");
   load();
+
+  document.getElementById("btn-upload").addEventListener("click", () => document.getElementById("upload-file").click());
+  document.getElementById("upload-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) uploadVideoFile(file);
+    e.target.value = "";
+  });
+
+  document.getElementById("btn-combine-mode").addEventListener("click", () => setCombineMode(!combineMode));
+  document.getElementById("btn-combine-cancel").addEventListener("click", () => setCombineMode(false));
+  document.getElementById("btn-combine-go").addEventListener("click", combineSelected);
 
   document.querySelectorAll(".filter-tabs button").forEach((btn) => {
     btn.addEventListener("click", () => {
