@@ -550,10 +550,14 @@ async function toggleVoiceoverRecording() {
   if (voRecorder && voRecorder.state === "recording") {
     voRecorder.stop();
     $("preview").pause();
+    $("preview").muted = false;
     return;
   }
   if (voiceoverBlob) removeVoiceover();
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  // echoCancellation left on for the mic itself, but explicitly requested
+  // rather than left to default — see the mute below for why it doesn't end
+  // up cancelling the narration.
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
   const chunks = [];
   // Wherever the video is currently paused is where the narration is meant
   // to land — playing it at the same time it's recorded is what makes that
@@ -569,6 +573,12 @@ async function toggleVoiceoverRecording() {
     showVoiceoverPreview();
   };
   voRecorder.start();
+  // Muted, not silent to the narrator by choice — playing the video's own
+  // audio out loud while the mic is live is exactly what the browser's own
+  // echo cancellation looks for to cancel out, and on a laptop's built-in
+  // mic/speakers that can quietly cancel the narration right along with it.
+  // The video is still visible to narrate along with; only its sound is off.
+  $("preview").muted = true;
   $("preview").play();
   btn.textContent = "■ Stop recording";
   btn.classList.add("btn-danger");
