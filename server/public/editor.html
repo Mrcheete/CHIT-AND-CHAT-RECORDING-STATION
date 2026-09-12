@@ -35,6 +35,25 @@
       <h3>Cuts to remove (filler / mistakes)</h3>
       <div class="clip-list" id="cut-list"></div>
 
+      <div class="stage-toolbar" style="margin-top:16px">
+        <span class="spacer" style="flex:1"></span>
+        <button class="btn btn-outline btn-sm" id="btn-mark-speed-in">Mark speed-up start</button>
+        <button class="btn btn-outline btn-sm" id="btn-mark-speed-out">Mark speed-up end</button>
+        <select class="input" id="speed-factor" style="width:auto">
+          <option value="0.25">0.25× (slow motion)</option>
+          <option value="0.5">0.5× (slow motion)</option>
+          <option value="1.5">1.5×</option>
+          <option value="2" selected>2×</option>
+          <option value="3">3×</option>
+          <option value="4">4×</option>
+          <option value="8">8×</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="btn-add-speed" disabled>Add speed change</button>
+      </div>
+      <h3>Speed changes</h3>
+      <p class="script-note">Speeds up (or slows down, for slow motion) just that stretch — good for a slow whiteboard-writing part, like a time-lapse. Doesn't touch anything outside the range you mark. Shown in teal on the bar above.</p>
+      <div class="clip-list" id="speed-list"></div>
+
       <div class="card">
         <h3>📑 Chapters</h3>
         <p class="script-note">Bookmark moments so a viewer can jump straight to a topic.</p>
@@ -98,9 +117,14 @@
           <p class="script-note">Tap the button (or press Space, while not typing above) to pause and resume right where it stopped.</p>
         </div>
 
-        <button class="btn btn-outline btn-sm" id="btn-vo-record">● Record voice-over</button>
+        <button class="btn btn-outline btn-sm" id="btn-vo-record">● Record voice-over (plays the video along with you)</button>
+        <p class="script-note">The video plays from wherever it's paused the moment you hit record — narrate along with it, and it lands in the same spot in the final mix.</p>
         <audio class="vo-preview" id="vo-preview" controls style="display:none"></audio>
         <div class="vo-trim-fields" id="vo-trim-fields" style="display:none">
+          <div class="field">
+            <label>Starts at (video, sec)</label>
+            <input type="number" id="vo-start-at" min="0" step="0.5" value="0">
+          </div>
           <div class="field">
             <label>Trim start (sec)</label>
             <input type="number" id="vo-trim-start" min="0" step="0.5" value="0">

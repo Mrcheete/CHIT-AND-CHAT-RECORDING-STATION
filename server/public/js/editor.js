@@ -4,8 +4,11 @@ const RECORDING_ID = params.get("id");
 let currentRecording = null;
 let cuts = []; // [{start, end}]
 let markIn = null;
+let speedChanges = []; // [{start, end, speed}] — speed > 1 speeds up, < 1 slows down
+let speedMarkIn = null;
 let voiceoverBlob = null;
 let voRecorder = null;
+let voStartAt = 0; // where in the video the voice-over is meant to begin
 let musicFile = null;
 let ffmpeg = null;
 let timelineDragStart = null; // seconds, while dragging a new cut on the timeline
@@ -91,10 +94,36 @@ function renderCutList() {
   renderTimeline();
 }
 
+function renderSpeedList() {
+  const list = $("speed-list");
+  if (!speedChanges.length) {
+    list.innerHTML = `<p class="script-note">No speed changes yet — mark a start and end above, pick a speed, then "Add speed change".</p>`;
+  } else {
+    list.innerHTML = "";
+    speedChanges
+      .sort((a, b) => a.start - b.start)
+      .forEach((sc, i) => {
+        const row = document.createElement("div");
+        row.className = "clip-row";
+        row.innerHTML = `<span>⏩ ${fmtTime(sc.start)} → ${fmtTime(sc.end)} at ${sc.speed}×</span><span class="spacer"></span>`;
+        const rm = document.createElement("button");
+        rm.className = "btn btn-sm btn-ghost";
+        rm.textContent = "Remove";
+        rm.onclick = () => {
+          speedChanges.splice(i, 1);
+          renderSpeedList();
+        };
+        row.appendChild(rm);
+        list.appendChild(row);
+      });
+  }
+  renderTimeline();
+}
+
 function renderTimeline() {
   const track = $("cut-timeline");
   const duration = getVideoDuration();
-  track.querySelectorAll(".timeline-cut").forEach((el) => el.remove());
+  track.querySelectorAll(".timeline-cut, .timeline-speed").forEach((el) => el.remove());
   if (!duration) return;
 
   cuts.forEach((c, i) => {
@@ -107,6 +136,21 @@ function renderTimeline() {
       e.stopPropagation();
       cuts.splice(i, 1);
       renderCutList();
+    });
+    track.appendChild(rect);
+  });
+
+  speedChanges.forEach((sc, i) => {
+    const rect = document.createElement("div");
+    rect.className = "timeline-speed";
+    rect.style.left = `${(sc.start / duration) * 100}%`;
+    rect.style.width = `${Math.max(0.3, ((sc.end - sc.start) / duration) * 100)}%`;
+    rect.textContent = `${sc.speed}×`;
+    rect.title = `${fmtTime(sc.start)} → ${fmtTime(sc.end)} at ${sc.speed}× — click to remove`;
+    rect.addEventListener("click", (e) => {
+      e.stopPropagation();
+      speedChanges.splice(i, 1);
+      renderSpeedList();
     });
     track.appendChild(rect);
   });
@@ -168,6 +212,48 @@ function keepSegments(duration, cutRanges) {
   }
   if (cursor < duration) segs.push([cursor, duration]);
   return segs.filter(([s, e]) => e - s > 0.05);
+}
+
+// ffmpeg's atempo filter only accepts 0.5–2.0 in one step; anything outside
+// that (a 4x speed-up, an 0.25x slow-down) needs to be chained as several
+// steps that multiply out to the target — e.g. 4x becomes atempo=2,atempo=2.
+function buildAtempoChain(factor) {
+  const chain = [];
+  let remaining = factor;
+  while (remaining > 2) {
+    chain.push(2);
+    remaining /= 2;
+  }
+  while (remaining < 0.5) {
+    chain.push(0.5);
+    remaining /= 0.5;
+  }
+  chain.push(remaining);
+  return chain;
+}
+
+// Turns the kept (post-cut) stretches of the video into an ordered list of
+// pieces to actually render — most at normal speed, any that overlap a
+// marked speed change split out on their own with that speed attached. A
+// speed change that straddles a cut is simply clipped to whichever kept
+// segment it falls in; it can't speed up footage that was removed.
+function buildRenderPieces(duration, cutRanges, speedRanges) {
+  const kept = keepSegments(duration, cutRanges);
+  const pieces = [];
+  for (const [s, e] of kept) {
+    const ranges = speedRanges
+      .map((sc) => ({ start: Math.max(sc.start, s), end: Math.min(sc.end, e), speed: sc.speed }))
+      .filter((r) => r.end - r.start > 0.05)
+      .sort((a, b) => a.start - b.start);
+    let cursor = s;
+    for (const r of ranges) {
+      if (r.start > cursor) pieces.push({ start: cursor, end: r.start, speed: 1 });
+      pieces.push({ start: r.start, end: r.end, speed: r.speed });
+      cursor = r.end;
+    }
+    if (cursor < e) pieces.push({ start: cursor, end: e, speed: 1 });
+  }
+  return pieces;
 }
 
 async function loadRecordingIntoEditor() {
@@ -298,14 +384,14 @@ async function applyEditsAndRender() {
     applyBtn.disabled = true;
     try {
       const duration = getVideoDuration();
-      const segments = cuts.length ? keepSegments(duration, cuts) : [[0, duration]];
-      if (!segments.length) throw new Error("those cuts remove the entire video");
+      const pieces = buildRenderPieces(duration, cuts, speedChanges);
+      if (!pieces.length) throw new Error("those cuts remove the entire video");
       CCBrand.toast("Rendering on the server…");
       const saved = await CCApi.json(`/api/recordings/${currentRecording.id}/trim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          segments,
+          pieces,
           format: $("export-format").value,
           title: `${currentRecording.title} (edited)`,
         }),
@@ -329,12 +415,17 @@ async function applyEditsAndRender() {
     const inputExt = extFor(currentRecording.mimeType);
     ff.FS("writeFile", `input.${inputExt}`, await fetchFile(currentRecording.url));
 
-    const segs = cuts.length ? keepSegments(duration, cuts) : [[0, duration]];
+    const pieces = buildRenderPieces(duration, cuts, speedChanges);
     const segFiles = [];
-    for (let i = 0; i < segs.length; i++) {
-      const [s, e] = segs[i];
+    for (let i = 0; i < pieces.length; i++) {
+      const { start: s, end: e, speed } = pieces[i];
       const out = `seg${i}.mp4`;
-      await ff.run("-i", `input.${inputExt}`, "-ss", String(s), "-to", String(e), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", out);
+      const args = ["-i", `input.${inputExt}`, "-ss", String(s), "-to", String(e)];
+      if (speed !== 1) {
+        args.push("-vf", `setpts=PTS/${speed}`, "-af", buildAtempoChain(speed).map((f) => `atempo=${f}`).join(","));
+      }
+      args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", out);
+      await ff.run(...args);
       segFiles.push(out);
     }
 
@@ -357,12 +448,17 @@ async function applyEditsAndRender() {
       const trimStart = Number($("vo-trim-start").value) || 0;
       const trimEndRaw = $("vo-trim-end").value;
       const trimEnd = trimEndRaw ? Number(trimEndRaw) : null;
-      const voFilter =
+      // Where in the finished video the narration should start — captured
+      // automatically from the video's own playhead when recording began
+      // (see toggleVoiceoverRecording), editable here if it needs a nudge.
+      const delayMs = Math.round((Number($("vo-start-at").value) || 0) * 1000);
+      const trimFilter =
         trimEnd && trimEnd > trimStart
-          ? `[1:a]atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS[vo]`
+          ? `atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS`
           : trimStart > 0
-            ? `[1:a]atrim=start=${trimStart},asetpts=PTS-STARTPTS[vo]`
-            : `[1:a]anull[vo]`;
+            ? `atrim=start=${trimStart},asetpts=PTS-STARTPTS`
+            : `anull`;
+      const voFilter = delayMs > 0 ? `[1:a]${trimFilter},adelay=${delayMs}:all=1[vo]` : `[1:a]${trimFilter}[vo]`;
       await ff.run(
         "-i", current, "-i", "voiceover.webm",
         "-filter_complex", `${voFilter};[0:a][vo]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
@@ -428,6 +524,7 @@ function showVoiceoverPreview() {
   audio.style.display = "block";
   $("vo-actions").style.display = "flex";
   $("vo-trim-fields").style.display = "flex";
+  $("vo-start-at").value = Math.round(voStartAt * 10) / 10;
   $("vo-trim-start").value = "0";
   audio.addEventListener(
     "loadedmetadata",
@@ -452,21 +549,27 @@ async function toggleVoiceoverRecording() {
   const btn = $("btn-vo-record");
   if (voRecorder && voRecorder.state === "recording") {
     voRecorder.stop();
+    $("preview").pause();
     return;
   }
   if (voiceoverBlob) removeVoiceover();
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   const chunks = [];
+  // Wherever the video is currently paused is where the narration is meant
+  // to land — playing it at the same time it's recorded is what makes that
+  // automatic instead of a number to work out and type in afterwards.
+  voStartAt = getVideoDuration() ? $("preview").currentTime : 0;
   voRecorder = new MediaRecorder(stream);
   voRecorder.ondataavailable = (e) => chunks.push(e.data);
   voRecorder.onstop = () => {
     voiceoverBlob = new Blob(chunks, { type: "audio/webm" });
     stream.getTracks().forEach((t) => t.stop());
-    btn.textContent = "● Record voice-over";
+    btn.textContent = "● Record voice-over (plays the video along with you)";
     btn.classList.remove("btn-danger");
     showVoiceoverPreview();
   };
   voRecorder.start();
+  $("preview").play();
   btn.textContent = "■ Stop recording";
   btn.classList.add("btn-danger");
 }
@@ -551,6 +654,7 @@ async function translateVideo() {
 document.addEventListener("DOMContentLoaded", async () => {
   CCBrand.renderHeader("editor.html");
   renderCutList();
+  renderSpeedList();
   setupTimeline();
   await loadRecordingIntoEditor();
   await populateIntroOptions();
@@ -570,6 +674,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderCutList();
   });
   $("btn-add-cut").addEventListener("click", () => $("btn-mark-out").click());
+
+  $("btn-mark-speed-in").addEventListener("click", () => {
+    speedMarkIn = $("preview").currentTime;
+    CCBrand.toast(`Speed-up start marked at ${fmtTime(speedMarkIn)}`);
+    $("btn-add-speed").disabled = false;
+  });
+  $("btn-mark-speed-out").addEventListener("click", () => {
+    if (speedMarkIn === null) return CCBrand.toast("Mark a speed-up start first.");
+    const out = $("preview").currentTime;
+    if (out <= speedMarkIn) return CCBrand.toast("Speed-up end must be after its start.");
+    speedChanges.push({ start: speedMarkIn, end: out, speed: Number($("speed-factor").value) });
+    speedMarkIn = null;
+    $("btn-add-speed").disabled = true;
+    renderSpeedList();
+  });
+  $("btn-add-speed").addEventListener("click", () => $("btn-mark-speed-out").click());
 
   $("music-file").addEventListener("change", (e) => (musicFile = e.target.files[0] || null));
   setupVoiceoverTeleprompter();

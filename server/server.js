@@ -26,6 +26,24 @@ const { requireAuth, verifyLogin } = require("./auth");
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 
+// ffmpeg's atempo filter only accepts 0.5–2.0 in a single step; anything
+// outside that (a 4x speed-up, an 0.25x slow-down) needs to be chained as
+// several steps that multiply out to the target speed.
+function buildAtempoChain(factor) {
+  const chain = [];
+  let remaining = factor;
+  while (remaining > 2) {
+    chain.push(2);
+    remaining /= 2;
+  }
+  while (remaining < 0.5) {
+    chain.push(0.5);
+    remaining /= 0.5;
+  }
+  chain.push(remaining);
+  return chain;
+}
+
 const PORT = process.env.PORT || 8787;
 const PUBLIC_DIR = path.join(__dirname, "public");
 // Resolved to an absolute path even when DATA_DIR is set relatively (e.g.
@@ -487,12 +505,28 @@ app.post(
     if (!rec) return res.status(404).json({ error: "not found" });
     if (rec.status !== "finalized") return res.status(400).json({ error: "recording isn't finalized yet" });
 
-    const segments = Array.isArray(req.body.segments) ? req.body.segments : [];
-    const valid = segments.every(
-      (s) => Array.isArray(s) && s.length === 2 && typeof s[0] === "number" && typeof s[1] === "number" && s[1] > s[0]
+    // `pieces` is the current shape ({start, end, speed?} — speed lets a
+    // piece play faster or slower, everything else plays at 1x); plain
+    // [start, end] `segments` still works too, just always at 1x.
+    const rawPieces = Array.isArray(req.body.pieces)
+      ? req.body.pieces
+      : Array.isArray(req.body.segments)
+        ? req.body.segments.map((s) => (Array.isArray(s) ? { start: s[0], end: s[1] } : s))
+        : [];
+    const pieces = rawPieces.map((p) => ({ start: p?.start, end: p?.end, speed: p?.speed ?? 1 }));
+    const valid = pieces.every(
+      (p) =>
+        typeof p.start === "number" &&
+        typeof p.end === "number" &&
+        p.end > p.start &&
+        typeof p.speed === "number" &&
+        p.speed > 0 &&
+        p.speed <= 16
     );
-    if (!segments.length || !valid) {
-      return res.status(400).json({ error: "segments must be a non-empty array of [start, end] pairs with end > start" });
+    if (!pieces.length || !valid) {
+      return res
+        .status(400)
+        .json({ error: "pieces must be a non-empty array of {start, end, speed?} with end > start" });
     }
     const format = req.body.format === "webm" ? "webm" : "mp4";
 
@@ -501,14 +535,21 @@ app.post(
     fs.mkdirSync(workDir, { recursive: true });
     try {
       const segFiles = [];
-      for (let i = 0; i < segments.length; i++) {
-        const [s, e] = segments[i];
+      for (let i = 0; i < pieces.length; i++) {
+        const { start: s, end: e, speed } = pieces[i];
         const segPath = path.join(workDir, `seg${i}.mp4`);
+        const outputOptions = ["-c:v libx264", "-preset ultrafast", "-crf 23", "-c:a aac"];
+        if (speed !== 1) {
+          outputOptions.push(
+            `-vf setpts=PTS/${speed}`,
+            `-af ${buildAtempoChain(speed).map((f) => `atempo=${f}`).join(",")}`
+          );
+        }
         await new Promise((resolve, reject) => {
           ffmpeg(sourcePath)
             .setStartTime(s)
             .duration(e - s)
-            .outputOptions(["-c:v libx264", "-preset ultrafast", "-crf 23", "-c:a aac"])
+            .outputOptions(outputOptions)
             .save(segPath)
             .on("end", resolve)
             .on("error", reject);
@@ -549,7 +590,7 @@ app.post(
       }
 
       const fileSize = fs.statSync(outPath).size;
-      const newDurationSec = Math.round(segments.reduce((sum, [s, e]) => sum + (e - s), 0));
+      const newDurationSec = Math.round(pieces.reduce((sum, p) => sum + (p.end - p.start) / p.speed, 0));
       const id = crypto.randomUUID();
       const title = req.body.title || `${rec.title} (trimmed)`;
       const outMimeType = format === "webm" ? "video/webm" : "video/mp4";
