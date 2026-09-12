@@ -307,6 +307,7 @@ async function loadRecordingIntoEditor() {
     return;
   }
   $("editor-subtitle").textContent = `Editing "${currentRecording.title}"`;
+  $("preview").muted = false;
   $("preview").src = currentRecording.url;
   $("preview").addEventListener("timeupdate", () => {
     const preview = $("preview");
@@ -543,6 +544,10 @@ async function applyEditsAndRender() {
     const outBlob = new Blob([data.buffer], { type: mimeType });
 
     $("preview").src = URL.createObjectURL(outBlob);
+    // Defensive, regardless of whether a voice-over was recorded this
+    // session — the rendered result must always be audible, never silently
+    // inheriting a stuck mute from an interrupted recording attempt.
+    $("preview").muted = false;
     CCBrand.toast("Render complete — saving to your library…");
 
     // Edits produce a new library entry (same pattern as a translation),
@@ -671,6 +676,14 @@ async function toggleVoiceoverRecording() {
   voRecorder = new MediaRecorder(stream);
   voRecorder.ondataavailable = (e) => chunks.push(e.data);
   voRecorder.onstop = async () => {
+    // Unmuting here too (not just in the click handler above) guarantees it
+    // actually happens whenever a recording really stops, no matter what
+    // triggered .stop() — a click landing a beat before MediaRecorder's
+    // internal state finished flipping to "recording" would otherwise skip
+    // the click handler's branch entirely and leave every video permanently
+    // silent for the rest of this page, voice-over or not.
+    $("preview").pause();
+    $("preview").muted = false;
     const blob = new Blob(chunks, { type: "audio/webm" });
     stream.getTracks().forEach((t) => t.stop());
     btn.textContent = "● Record voice-over (plays the video along with you)";
