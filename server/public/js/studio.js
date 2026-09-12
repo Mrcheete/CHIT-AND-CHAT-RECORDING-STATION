@@ -88,11 +88,35 @@ document.addEventListener("DOMContentLoaded", () => {
     else await tp.loadTxtFile(file);
   });
   document.getElementById("script-font").addEventListener("input", (e) => tp.setFontSize(Number(e.target.value)));
+
+  const btnAutoscroll = document.getElementById("btn-autoscroll");
+  const speedSlider = document.getElementById("script-speed");
   let autoscrollOn = false;
-  document.getElementById("btn-autoscroll").addEventListener("click", (e) => {
+  let scrollSpeed = Number(speedSlider.value);
+
+  function toggleAutoscroll() {
     autoscrollOn = !autoscrollOn;
-    tp.setAutoScroll(autoscrollOn, 30);
-    e.target.textContent = `Auto-scroll: ${autoscrollOn ? "on" : "off"}`;
+    tp.setAutoScroll(autoscrollOn, scrollSpeed);
+    btnAutoscroll.textContent = autoscrollOn ? "⏸ Pause script" : "▶ Play script";
+  }
+  btnAutoscroll.addEventListener("click", toggleAutoscroll);
+
+  // Dragged while already scrolling, this changes the rate immediately
+  // without losing the current position or needing to pause first.
+  speedSlider.addEventListener("input", (e) => {
+    scrollSpeed = Number(e.target.value);
+    tp.setSpeed(scrollSpeed);
+  });
+
+  // Space pauses/resumes the script from wherever it's stopped, so it can be
+  // stopped the instant something needs re-reading without reaching for the
+  // mouse — ignored while typing anywhere, so it never fights normal typing.
+  document.addEventListener("keydown", (e) => {
+    if (e.code !== "Space") return;
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "textarea" || tag === "input" || tag === "select") return;
+    e.preventDefault();
+    toggleAutoscroll();
   });
   document.getElementById("chk-hide-recording").addEventListener("change", (e) => tp.setHideWhileRecording(e.target.checked));
 

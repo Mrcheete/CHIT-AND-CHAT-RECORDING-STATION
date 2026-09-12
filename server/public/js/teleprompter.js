@@ -7,6 +7,8 @@
 function createTeleprompter({ panelEl, textEl }) {
   let autoScrollTimer = null;
   let hideWhileRecording = false;
+  let currentSpeed = 30;
+  let running = false;
 
   function setScript(text) {
     textEl.textContent = text;
@@ -39,12 +41,28 @@ function createTeleprompter({ panelEl, textEl }) {
     textEl.style.fontSize = `${px}px`;
   }
 
-  function setAutoScroll(on, speed = 30) {
+  // Turning it off (rather than reloading the script) never resets the
+  // scroll position — that's what makes it double as pause/resume, wherever
+  // in the script it's stopped.
+  function setAutoScroll(on, speed) {
+    if (typeof speed === "number") currentSpeed = speed;
+    running = on;
     clearInterval(autoScrollTimer);
     if (!on) return;
     autoScrollTimer = setInterval(() => {
       textEl.scrollTop += 1;
-    }, 1000 / speed);
+    }, 1000 / currentSpeed);
+  }
+
+  // Changes the rate live, without pausing or losing the current position —
+  // for dragging the speed slider mid-scroll instead of only before starting.
+  function setSpeed(speed) {
+    currentSpeed = speed;
+    if (running) setAutoScroll(true, speed);
+  }
+
+  function isRunning() {
+    return running;
   }
 
   function setHideWhileRecording(on) {
@@ -56,7 +74,18 @@ function createTeleprompter({ panelEl, textEl }) {
     panelEl.style.visibility = state === "recording" ? "hidden" : "visible";
   }
 
-  return { setScript, loadTxtFile, loadPdfFile, setPosition, setFontSize, setAutoScroll, setHideWhileRecording, onRecordingStateChange };
+  return {
+    setScript,
+    loadTxtFile,
+    loadPdfFile,
+    setPosition,
+    setFontSize,
+    setAutoScroll,
+    setSpeed,
+    isRunning,
+    setHideWhileRecording,
+    onRecordingStateChange,
+  };
 }
 
 window.createTeleprompter = createTeleprompter;

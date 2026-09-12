@@ -87,9 +87,19 @@
       </div>
       <div class="script-controls">
         <input type="file" id="script-file" accept=".txt,.pdf" style="max-width:150px">
-        <button class="btn btn-sm btn-outline" id="btn-autoscroll">Auto-scroll: off</button>
-        <input type="range" id="script-font" min="14" max="42" value="20" title="Font size">
+        <button class="btn btn-sm btn-outline" id="btn-autoscroll">▶ Play script</button>
       </div>
+      <div class="script-controls">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:0.85rem">
+          Speed
+          <input type="range" id="script-speed" min="5" max="100" value="30" title="Scroll speed">
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:0.85rem">
+          Text size
+          <input type="range" id="script-font" min="14" max="42" value="20" title="Font size">
+        </label>
+      </div>
+      <p class="script-note" style="margin:2px 0 6px">Tap the button (or press Space, while not typing in the script) to pause and resume right where it stopped.</p>
       <textarea id="script-paste" rows="3" placeholder="…or paste your script here"></textarea>
       <div class="script-text" id="script-text">Your script will appear here — upload a .txt/.pdf or paste text above.</div>
     </div>
