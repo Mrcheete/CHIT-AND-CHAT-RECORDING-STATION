@@ -72,7 +72,22 @@
 .vo-trim-fields .field { flex: 1; margin: 0; }
 .vo-trim-fields label { font-size: 0.75rem; }
 
-/* Sits inside a sidebar card, not studio's full-height layout, so it never
-   needs the sticky positioning .script-panel uses there. */
-.vo-teleprompter { position: static; max-height: none; margin-bottom: 10px; }
-.vo-teleprompter #vo-script-paste { width: 100%; }
+/* Sits inside a sidebar card that sizes to its content, not the Studio's
+   full-height layout .script-panel was built for — where a flex column
+   with a real height to fill makes `.script-text`'s flex:1 sensible.
+   Here there's no height to fill, and `flex:1` + `overflow-y:auto`
+   collapses to almost nothing instead (setting overflow on a flex item
+   zeroes its automatic minimum size), which is what was overlapping
+   everything. Switching this instance to plain block stacking with fixed,
+   comfortable heights on the two scrollable bits sidesteps that entirely. */
+.vo-teleprompter {
+  display: block;
+  position: static;
+  max-height: none;
+  margin-bottom: 10px;
+}
+.vo-teleprompter > * + * { margin-top: 10px; }
+.vo-teleprompter .script-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.vo-teleprompter .script-controls:first-child { margin-top: 0; }
+.vo-teleprompter #vo-script-paste { width: 100%; height: 44px; resize: vertical; }
+.vo-teleprompter .script-text { height: 100px; max-height: 100px; overflow-y: auto; }
