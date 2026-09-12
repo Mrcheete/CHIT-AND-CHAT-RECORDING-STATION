@@ -94,8 +94,8 @@
       </div>
 
       <div class="card">
-        <h3>🎙️ Voice-over</h3>
-        <p class="script-note">Record narration separately, then mix it into this video's audio.</p>
+        <h3>🎙️ Voice-overs</h3>
+        <p class="script-note">Record narration, or upload an audio file — add as many as you need, then drag each one's marker on the timeline above to line it up exactly where it should play.</p>
 
         <div class="script-panel vo-teleprompter" id="vo-script-panel">
           <div class="script-controls">
@@ -117,27 +117,14 @@
           <p class="script-note">Tap the button (or press Space, while not typing above) to pause and resume right where it stopped.</p>
         </div>
 
-        <button class="btn btn-outline btn-sm" id="btn-vo-record">● Record voice-over (plays the video along with you)</button>
-        <p class="script-note">The video plays from wherever it's paused the moment you hit record — narrate along with it, and it lands in the same spot in the final mix.</p>
-        <audio class="vo-preview" id="vo-preview" controls style="display:none"></audio>
-        <div class="vo-trim-fields" id="vo-trim-fields" style="display:none">
-          <div class="field">
-            <label>Starts at (video, sec)</label>
-            <input type="number" id="vo-start-at" min="0" step="0.5" value="0">
-          </div>
-          <div class="field">
-            <label>Trim start (sec)</label>
-            <input type="number" id="vo-trim-start" min="0" step="0.5" value="0">
-          </div>
-          <div class="field">
-            <label>Trim end (sec)</label>
-            <input type="number" id="vo-trim-end" min="0" step="0.5">
-          </div>
+        <div class="vo-add-actions">
+          <button class="btn btn-outline btn-sm" id="btn-vo-record">● Record voice-over (plays the video along with you)</button>
+          <button class="btn btn-outline btn-sm" id="btn-vo-upload">📁 Upload audio file</button>
+          <input type="file" id="vo-upload-file" accept="audio/*" hidden>
         </div>
-        <div class="vo-actions" id="vo-actions" style="display:none">
-          <button class="btn btn-ghost btn-sm" id="btn-vo-rerecord">Re-record</button>
-          <button class="btn btn-ghost btn-sm" id="btn-vo-remove">Remove</button>
-        </div>
+        <p class="script-note">However you add one, it starts wherever the video's playhead is right now — nudge it later with the "Starts at" field below, or just drag its 🎙️ marker on the timeline.</p>
+
+        <div class="clip-list" id="vo-list"></div>
       </div>
 
       <div class="card">

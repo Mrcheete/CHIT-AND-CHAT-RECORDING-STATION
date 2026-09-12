@@ -6,9 +6,9 @@ let cuts = []; // [{start, end}]
 let markIn = null;
 let speedChanges = []; // [{start, end, speed}] — speed > 1 speeds up, < 1 slows down
 let speedMarkIn = null;
-let voiceoverBlob = null;
+let voiceovers = []; // [{id, blob, ext, startAt, trimStart, trimEnd, durationSec, previewUrl}]
+let voIdSeq = 0;
 let voRecorder = null;
-let voStartAt = 0; // where in the video the voice-over is meant to begin
 let musicFile = null;
 let ffmpeg = null;
 let timelineDragStart = null; // seconds, while dragging a new cut on the timeline
@@ -130,7 +130,7 @@ function renderSpeedList() {
 function renderTimeline() {
   const track = $("cut-timeline");
   const duration = getVideoDuration();
-  track.querySelectorAll(".timeline-cut, .timeline-speed").forEach((el) => el.remove());
+  track.querySelectorAll(".timeline-cut, .timeline-speed, .timeline-vo").forEach((el) => el.remove());
   if (!duration) return;
 
   cuts.forEach((c, i) => {
@@ -158,6 +158,35 @@ function renderTimeline() {
       e.stopPropagation();
       speedChanges.splice(i, 1);
       renderSpeedList();
+    });
+    track.appendChild(rect);
+  });
+
+  // Voice-overs get a draggable marker rather than a click-to-remove one —
+  // grabbing it anywhere and moving the pointer sets its start to wherever
+  // the pointer lands, which is the actual "drag the audio onto the video
+  // where I want it" interaction, no typed-in second required.
+  voiceovers.forEach((vo) => {
+    const rect = document.createElement("div");
+    rect.className = "timeline-vo";
+    const voDur = Math.max((vo.trimEnd ?? vo.durationSec ?? 2) - vo.trimStart, 0.3);
+    rect.style.left = `${(vo.startAt / duration) * 100}%`;
+    rect.style.width = `${Math.max(0.6, (voDur / duration) * 100)}%`;
+    rect.title = `Voice-over starting at ${fmtTime(vo.startAt)} — drag to reposition`;
+    rect.textContent = "🎙️";
+    rect.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      const onMove = (ev) => {
+        vo.startAt = Math.round(timelineTimeFromEvent(ev) * 10) / 10;
+        renderTimeline();
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        renderVoiceoverList(); // syncs the "Starts at" field to the dropped position
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
     });
     track.appendChild(rect);
   });
@@ -385,7 +414,7 @@ async function applyEditsAndRender() {
   // intro clip, a voice-over, or background music) is both faster and, for
   // a file whose container has trouble reporting its own duration, doesn't
   // depend on the browser correctly reading that duration at all.
-  const noExtras = !introId && !voiceoverBlob && !musicFile;
+  const noExtras = !introId && !voiceovers.length && !musicFile;
 
   if (noExtras) {
     applyBtn.disabled = true;
@@ -450,27 +479,40 @@ async function applyEditsAndRender() {
     await ff.run("-f", "concat", "-safe", "0", "-i", "list.txt", "-c", "copy", "merged.mp4");
     let current = "merged.mp4";
 
-    if (voiceoverBlob) {
-      ff.FS("writeFile", "voiceover.webm", await fetchFile(voiceoverBlob));
-      const trimStart = Number($("vo-trim-start").value) || 0;
-      const trimEndRaw = $("vo-trim-end").value;
-      const trimEnd = trimEndRaw ? Number(trimEndRaw) : null;
-      // Where in the finished video the narration should start — captured
-      // automatically from the video's own playhead when recording began
-      // (see toggleVoiceoverRecording), editable here if it needs a nudge.
-      const delayMs = Math.round((Number($("vo-start-at").value) || 0) * 1000);
-      const trimFilter =
-        trimEnd && trimEnd > trimStart
-          ? `atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS`
-          : trimStart > 0
-            ? `atrim=start=${trimStart},asetpts=PTS-STARTPTS`
-            : `anull`;
-      const voFilter = delayMs > 0 ? `[1:a]${trimFilter},adelay=${delayMs}:all=1[vo]` : `[1:a]${trimFilter}[vo]`;
-      await ff.run(
-        "-i", current, "-i", "voiceover.webm",
-        "-filter_complex", `${voFilter};[0:a][vo]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
+    if (voiceovers.length) {
+      // Each voice-over is its own ffmpeg input, trimmed/delayed to its own
+      // spot, then all of them plus the video's own audio go through one
+      // amix — N voice-overs mix together in a single pass rather than one
+      // sequential merge per track.
+      const args = ["-i", current];
+      const filterParts = [];
+      const voLabels = [];
+      for (let i = 0; i < voiceovers.length; i++) {
+        const vo = voiceovers[i];
+        const filename = `voiceover${i}.${vo.ext}`;
+        ff.FS("writeFile", filename, await fetchFile(vo.blob));
+        args.push("-i", filename);
+
+        const trimStart = Number(vo.trimStart) || 0;
+        const trimEnd = vo.trimEnd ? Number(vo.trimEnd) : null;
+        const delayMs = Math.round((Number(vo.startAt) || 0) * 1000);
+        const trimFilter =
+          trimEnd && trimEnd > trimStart
+            ? `atrim=start=${trimStart}:end=${trimEnd},asetpts=PTS-STARTPTS`
+            : trimStart > 0
+              ? `atrim=start=${trimStart},asetpts=PTS-STARTPTS`
+              : `anull`;
+        const label = `vo${i}`;
+        const delayFilter = delayMs > 0 ? `,adelay=${delayMs}:all=1` : "";
+        filterParts.push(`[${i + 1}:a]${trimFilter}${delayFilter}[${label}]`);
+        voLabels.push(`[${label}]`);
+      }
+      filterParts.push(`[0:a]${voLabels.join("")}amix=inputs=${voiceovers.length + 1}:duration=first:dropout_transition=2[aout]`);
+      args.push(
+        "-filter_complex", filterParts.join(";"),
         "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "merged_vo.mp4"
       );
+      await ff.run(...args);
       current = "merged_vo.mp4";
     }
 
@@ -524,32 +566,89 @@ async function applyEditsAndRender() {
   }
 }
 
-function showVoiceoverPreview() {
-  const url = URL.createObjectURL(voiceoverBlob);
-  const audio = $("vo-preview");
-  audio.src = url;
-  audio.style.display = "block";
-  $("vo-actions").style.display = "flex";
-  $("vo-trim-fields").style.display = "flex";
-  $("vo-start-at").value = Math.round(voStartAt * 10) / 10;
-  $("vo-trim-start").value = "0";
-  audio.addEventListener(
-    "loadedmetadata",
-    () => {
-      $("vo-trim-end").value = Math.round(audio.duration * 10) / 10;
-    },
-    { once: true }
-  );
+// Real duration for a recorded/uploaded audio clip — used both to size its
+// timeline marker and to default its trim-end field.
+function readAudioDuration(blob) {
+  return new Promise((resolve) => {
+    const audio = document.createElement("audio");
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      resolve(Number.isFinite(audio.duration) ? audio.duration : 0);
+    };
+    audio.onerror = () => resolve(0);
+    audio.src = URL.createObjectURL(blob);
+  });
 }
 
-function removeVoiceover() {
-  voiceoverBlob = null;
-  const audio = $("vo-preview");
-  audio.pause();
-  audio.removeAttribute("src");
-  audio.style.display = "none";
-  $("vo-actions").style.display = "none";
-  $("vo-trim-fields").style.display = "none";
+function addVoiceover({ blob, ext, startAt, durationSec }) {
+  voiceovers.push({
+    id: ++voIdSeq,
+    blob,
+    ext,
+    startAt: Math.round((startAt || 0) * 10) / 10,
+    trimStart: 0,
+    trimEnd: durationSec ? Math.round(durationSec * 10) / 10 : null,
+    durationSec: durationSec || 0,
+    previewUrl: URL.createObjectURL(blob),
+  });
+  renderVoiceoverList();
+  renderTimeline();
+}
+
+function removeVoiceoverById(id) {
+  const vo = voiceovers.find((v) => v.id === id);
+  if (vo) URL.revokeObjectURL(vo.previewUrl);
+  voiceovers = voiceovers.filter((v) => v.id !== id);
+  renderVoiceoverList();
+  renderTimeline();
+}
+
+function renderVoiceoverList() {
+  const list = $("vo-list");
+  if (!voiceovers.length) {
+    list.innerHTML = `<p class="script-note">No voice-overs yet — record one or upload an audio file, then drag its 🎙️ marker on the timeline above.</p>`;
+    return;
+  }
+  list.innerHTML = "";
+  voiceovers.forEach((vo, i) => {
+    const row = document.createElement("div");
+    row.className = "vo-item";
+    row.innerHTML = `
+      <div class="vo-item-row">
+        <strong>🎙️ Voice-over ${i + 1}</strong>
+        <span class="spacer"></span>
+        <button class="btn btn-sm btn-ghost" data-action="remove">Remove</button>
+      </div>
+      <audio controls src="${vo.previewUrl}"></audio>
+      <div class="vo-trim-fields">
+        <div class="field">
+          <label>Starts at (video, sec)</label>
+          <input type="number" class="vo-start-at" min="0" step="0.5" value="${vo.startAt}">
+        </div>
+        <div class="field">
+          <label>Trim start (sec)</label>
+          <input type="number" class="vo-trim-start" min="0" step="0.5" value="${vo.trimStart}">
+        </div>
+        <div class="field">
+          <label>Trim end (sec)</label>
+          <input type="number" class="vo-trim-end" min="0" step="0.5" value="${vo.trimEnd ?? ""}">
+        </div>
+      </div>
+    `;
+    row.querySelector('[data-action="remove"]').addEventListener("click", () => removeVoiceoverById(vo.id));
+    row.querySelector(".vo-start-at").addEventListener("change", (e) => {
+      vo.startAt = Number(e.target.value) || 0;
+      renderTimeline();
+    });
+    row.querySelector(".vo-trim-start").addEventListener("change", (e) => {
+      vo.trimStart = Number(e.target.value) || 0;
+    });
+    row.querySelector(".vo-trim-end").addEventListener("change", (e) => {
+      vo.trimEnd = e.target.value ? Number(e.target.value) : null;
+      renderTimeline();
+    });
+    list.appendChild(row);
+  });
 }
 
 async function toggleVoiceoverRecording() {
@@ -560,7 +659,6 @@ async function toggleVoiceoverRecording() {
     $("preview").muted = false;
     return;
   }
-  if (voiceoverBlob) removeVoiceover();
   // echoCancellation left on for the mic itself, but explicitly requested
   // rather than left to default — see the mute below for why it doesn't end
   // up cancelling the narration.
@@ -569,15 +667,16 @@ async function toggleVoiceoverRecording() {
   // Wherever the video is currently paused is where the narration is meant
   // to land — playing it at the same time it's recorded is what makes that
   // automatic instead of a number to work out and type in afterwards.
-  voStartAt = getVideoDuration() ? $("preview").currentTime : 0;
+  const startAt = getVideoDuration() ? $("preview").currentTime : 0;
   voRecorder = new MediaRecorder(stream);
   voRecorder.ondataavailable = (e) => chunks.push(e.data);
-  voRecorder.onstop = () => {
-    voiceoverBlob = new Blob(chunks, { type: "audio/webm" });
+  voRecorder.onstop = async () => {
+    const blob = new Blob(chunks, { type: "audio/webm" });
     stream.getTracks().forEach((t) => t.stop());
     btn.textContent = "● Record voice-over (plays the video along with you)";
     btn.classList.remove("btn-danger");
-    showVoiceoverPreview();
+    const durationSec = await readAudioDuration(blob);
+    addVoiceover({ blob, ext: "webm", startAt, durationSec });
   };
   voRecorder.start();
   // Muted, not silent to the narrator by choice — playing the video's own
@@ -589,6 +688,13 @@ async function toggleVoiceoverRecording() {
   $("preview").play();
   btn.textContent = "■ Stop recording";
   btn.classList.add("btn-danger");
+}
+
+async function addVoiceoverFromFile(file) {
+  const startAt = getVideoDuration() ? $("preview").currentTime : 0;
+  const durationSec = await readAudioDuration(file);
+  const ext = (file.name.split(".").pop() || "mp3").toLowerCase();
+  addVoiceover({ blob: file, ext, startAt, durationSec });
 }
 
 // Lets the script be read while narrating a voice-over, same as the
@@ -710,9 +816,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   $("music-file").addEventListener("change", (e) => (musicFile = e.target.files[0] || null));
   setupVoiceoverTeleprompter();
+  renderVoiceoverList();
   $("btn-vo-record").addEventListener("click", toggleVoiceoverRecording);
-  $("btn-vo-rerecord").addEventListener("click", toggleVoiceoverRecording);
-  $("btn-vo-remove").addEventListener("click", removeVoiceover);
+  $("btn-vo-upload").addEventListener("click", () => $("vo-upload-file").click());
+  $("vo-upload-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (file) addVoiceoverFromFile(file);
+  });
   $("btn-apply").addEventListener("click", applyEditsAndRender);
   $("btn-translate").addEventListener("click", translateVideo);
   $("btn-audio-cleanup").addEventListener("click", cleanUpAudio);
