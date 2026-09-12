@@ -284,22 +284,31 @@ function extFor(mimeType) {
 async function applyEditsAndRender() {
   const applyBtn = $("btn-apply");
   const introId = $("intro-select").value;
-  const cutsOnly = cuts.length > 0 && !introId && !voiceoverBlob && !musicFile;
+  // No intro/voice-over/music to mix in — with or without cuts, this is
+  // just "trim (or don't) and maybe change format," which the server
+  // already does with real ffmpeg. Reusing that here instead of always
+  // reaching for the much slower, less reliable in-browser ffmpeg.wasm
+  // pipeline (built for the cases that genuinely do need it: mixing in an
+  // intro clip, a voice-over, or background music) is both faster and, for
+  // a file whose container has trouble reporting its own duration, doesn't
+  // depend on the browser correctly reading that duration at all.
+  const noExtras = !introId && !voiceoverBlob && !musicFile;
 
-  // Cuts alone don't need a browser-side ffmpeg.wasm pass at all — the
-  // server can extract and concat the kept ranges directly from its own
-  // stored copy, which is faster and doesn't require re-downloading the
-  // whole (possibly very long) recording into the browser first.
-  if (cutsOnly) {
+  if (noExtras) {
     applyBtn.disabled = true;
     try {
-      const segments = keepSegments(getVideoDuration(), cuts);
+      const duration = getVideoDuration();
+      const segments = cuts.length ? keepSegments(duration, cuts) : [[0, duration]];
       if (!segments.length) throw new Error("those cuts remove the entire video");
-      CCBrand.toast("Trimming on the server…");
+      CCBrand.toast("Rendering on the server…");
       const saved = await CCApi.json(`/api/recordings/${currentRecording.id}/trim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ segments, title: `${currentRecording.title} (trimmed)` }),
+        body: JSON.stringify({
+          segments,
+          format: $("export-format").value,
+          title: `${currentRecording.title} (edited)`,
+        }),
       });
       CCBrand.toast("Saved the trimmed video to your library.");
       setTimeout(() => (window.location.href = `editor.html?id=${saved.id}`), 900);

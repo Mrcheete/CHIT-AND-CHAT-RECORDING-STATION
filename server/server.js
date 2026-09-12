@@ -28,7 +28,12 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PORT = process.env.PORT || 8787;
 const PUBLIC_DIR = path.join(__dirname, "public");
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+// Resolved to an absolute path even when DATA_DIR is set relatively (e.g.
+// "./data") — ffmpeg's concat demuxer, unlike the other ffmpeg calls here,
+// failed outright ("Error opening input file") on a relative list.txt path,
+// since it's spawned as its own child process and isn't guaranteed to share
+// this process's cwd.
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "data"));
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -489,6 +494,7 @@ app.post(
     if (!segments.length || !valid) {
       return res.status(400).json({ error: "segments must be a non-empty array of [start, end] pairs with end > start" });
     }
+    const format = req.body.format === "webm" ? "webm" : "mp4";
 
     const sourcePath = path.join(UPLOAD_DIR, rec.file_path);
     const workDir = path.join(UPLOAD_DIR, `_work_${crypto.randomUUID()}`);
@@ -513,25 +519,43 @@ app.post(
       const listPath = path.join(workDir, "list.txt");
       fs.writeFileSync(listPath, segFiles.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n"));
 
-      const outFilename = `${crypto.randomUUID()}.mp4`;
-      const outPath = path.join(UPLOAD_DIR, outFilename);
+      const mergedPath = path.join(workDir, "merged.mp4");
       await new Promise((resolve, reject) => {
         ffmpeg()
           .input(listPath)
           .inputOptions(["-f concat", "-safe 0"])
           .outputOptions(["-c copy"])
-          .save(outPath)
+          .save(mergedPath)
           .on("end", resolve)
           .on("error", reject);
       });
+
+      const outFilename = `${crypto.randomUUID()}.${format}`;
+      const outPath = path.join(UPLOAD_DIR, outFilename);
+      if (format === "webm") {
+        // Same segments, re-encoded once more into webm — the per-segment
+        // trims above always produce mp4 (libx264/aac) since that's what
+        // real-time "ultrafast" trimming needs; this is the one extra pass
+        // that gets there for whoever picked webm as their export format.
+        await new Promise((resolve, reject) => {
+          ffmpeg(mergedPath)
+            .outputOptions(["-c:v libvpx-vp9", "-c:a libopus"])
+            .save(outPath)
+            .on("end", resolve)
+            .on("error", reject);
+        });
+      } else {
+        fs.copyFileSync(mergedPath, outPath);
+      }
 
       const fileSize = fs.statSync(outPath).size;
       const newDurationSec = Math.round(segments.reduce((sum, [s, e]) => sum + (e - s), 0));
       const id = crypto.randomUUID();
       const title = req.body.title || `${rec.title} (trimmed)`;
+      const outMimeType = format === "webm" ? "video/webm" : "video/mp4";
       db.prepare(
-        "INSERT INTO recordings (id, title, type, duration_sec, mime_type, file_path, file_size, edited, status, created_at) VALUES (?, ?, ?, ?, 'video/mp4', ?, ?, 1, 'finalized', ?)"
-      ).run(id, title, rec.type, newDurationSec, outFilename, fileSize, Date.now());
+        "INSERT INTO recordings (id, title, type, duration_sec, mime_type, file_path, file_size, edited, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'finalized', ?)"
+      ).run(id, title, rec.type, newDurationSec, outMimeType, outFilename, fileSize, Date.now());
 
       res.status(201).json(toRecordingDTO(db.prepare("SELECT * FROM recordings WHERE id = ?").get(id)));
     } finally {
