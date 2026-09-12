@@ -748,14 +748,19 @@ app.post(
 
     const workDir = path.join(UPLOAD_DIR, `_work_${crypto.randomUUID()}`);
     fs.mkdirSync(workDir, { recursive: true });
-    const audioPath = path.join(workDir, "audio.mp3");
+    // Plain WAV, not mp3 — libmp3lame's encoder finalizes an mp3 file with a
+    // seek back to the start to fix up its header, and on Railway's Volume
+    // that specific seek-then-write is what was failing ("Invalid argument"
+    // opening the output file); a WAV write is purely sequential, and
+    // Whisper accepts it exactly the same as mp3 for transcription.
+    const audioPath = path.join(workDir, "audio.wav");
     const ttsPath = path.join(workDir, "translated_audio.mp3");
     const outFilename = `${crypto.randomUUID()}.mp4`;
     const outPath = path.join(UPLOAD_DIR, outFilename);
 
     try {
       await new Promise((resolve, reject) => {
-        ffmpeg(sourcePath).noVideo().audioCodec("libmp3lame").save(audioPath).on("end", resolve).on("error", reject);
+        ffmpeg(sourcePath).noVideo().audioCodec("pcm_s16le").save(audioPath).on("end", resolve).on("error", reject);
       });
 
       const segments = await transcribeAudio(audioPath, apiKey);
