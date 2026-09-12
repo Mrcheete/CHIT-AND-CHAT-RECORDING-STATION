@@ -51,6 +51,9 @@
       <div class="stage-toolbar">
         <button class="btn btn-outline btn-sm" id="btn-enable-cam">Enable camera & mic</button>
         <button class="btn btn-outline btn-sm" id="btn-toggle-camera" disabled>📷 Camera: On</button>
+        <span class="mic-meter" id="mic-meter" style="display:none" title="Mic level — should move while you talk. If it stays flat, your mic is being silenced somewhere outside this app (OS privacy settings, or the wrong input device selected below).">
+          🎤<span class="mic-meter-track"><span class="mic-meter-fill" id="mic-meter-fill"></span></span>
+        </span>
         <select id="camera-select" class="btn btn-outline btn-sm" style="display:none"></select>
         <select id="mic-select" class="btn btn-outline btn-sm" style="display:none"></select>
         <select id="layout-select" class="btn btn-outline btn-sm">

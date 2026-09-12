@@ -101,6 +101,18 @@
    uninterrupted) self-preview rather than show a dead black box. */
 #cam-preview.cam-preview-off { visibility: hidden; }
 
+.mic-meter { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.mic-meter-track {
+  display: inline-block; width: 90px; height: 12px;
+  background: var(--brand-bg); border: 1px solid var(--brand-border); border-radius: 6px;
+  overflow: hidden;
+}
+.mic-meter-fill {
+  display: block; height: 100%; width: 0%;
+  background: linear-gradient(to right, #6fd6c6, #e6c229 70%, #e63946 100%);
+  transition: width 0.06s linear;
+}
+
 /* ---------- Right / top teleprompter panel ---------- */
 .script-panel {
   background: var(--brand-surface);

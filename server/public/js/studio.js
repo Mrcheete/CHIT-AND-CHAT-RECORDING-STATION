@@ -160,6 +160,22 @@ document.addEventListener("DOMContentLoaded", () => {
     camPreviewEl.classList.toggle("cam-preview-off", !rec.cameraEnabled);
   }
 
+  // Real-time proof the mic is actually being heard, not just "granted" —
+  // a browser can hand back a live-looking audio track while the OS itself
+  // silently mutes the actual hardware underneath it (a common Windows/Mac
+  // privacy-settings state), with no error anywhere. This bar moving when
+  // you talk is the only reliable way to know before recording a whole
+  // lesson around it; flat means go check your OS's mic permission for this
+  // browser, or that the right input device is picked below.
+  const micMeterEl = document.getElementById("mic-meter");
+  const micMeterFillEl = document.getElementById("mic-meter-fill");
+  function startMicMeterUI() {
+    micMeterEl.style.display = "inline-flex";
+    rec.startMicMeter((rms) => {
+      micMeterFillEl.style.width = `${Math.min(100, Math.round(rms * 300))}%`;
+    });
+  }
+
   document.getElementById("btn-enable-cam").addEventListener("click", async (e) => {
     try {
       await rec.requestCamera();
@@ -168,6 +184,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("btn-record").disabled = false;
       btnToggleCamera.disabled = false;
       renderCameraToggle();
+      startMicMeterUI();
       await populateDeviceSelects();
     } catch (err) {
       CCBrand.toast("Couldn't access camera/mic: " + err.message);
@@ -183,6 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
   camSelect.addEventListener("change", async () => {
     try {
       await rec.requestCamera({ videoDeviceId: camSelect.value, audioDeviceId: micSelect.value || undefined });
+      startMicMeterUI(); // switching devices gets a fresh stream — needs a fresh meter hookup too
     } catch (err) {
       CCBrand.toast("Couldn't switch camera: " + err.message);
     }
@@ -190,6 +208,7 @@ document.addEventListener("DOMContentLoaded", () => {
   micSelect.addEventListener("change", async () => {
     try {
       await rec.requestCamera({ videoDeviceId: camSelect.value || undefined, audioDeviceId: micSelect.value });
+      startMicMeterUI();
     } catch (err) {
       CCBrand.toast("Couldn't switch microphone: " + err.message);
     }

@@ -43,6 +43,9 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
   let layout = "pip-bottom-right"; // pip-bottom-right | pip-bottom-left | whiteboard-only | camera-only | side-by-side
   let state = "idle"; // idle | recording | paused
   let cameraEnabled = true;
+  let micAudioCtx = null;
+  let micAnalyser = null;
+  let micMeterRaf = null;
 
   const listeners = { tick: [], statechange: [] };
   function on(evt, fn) { listeners[evt].push(fn); }
@@ -51,6 +54,7 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
   async function requestCamera({ video = true, audio = true, videoDeviceId, audioDeviceId } = {}) {
     // Stop whatever's currently open first — switching devices without this
     // leaves the old camera/mic silently still held open in the background.
+    stopMicMeter(); // it's hooked to the about-to-be-stopped track
     if (camStream) camStream.getTracks().forEach((t) => t.stop());
     camStream = await navigator.mediaDevices.getUserMedia({
       video: video ? { width: 640, height: 480, ...(videoDeviceId ? { deviceId: { exact: videoDeviceId } } : {}) } : false,
@@ -74,6 +78,49 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
     if (camStream) camStream.getVideoTracks().forEach((t) => (t.enabled = on));
   }
 
+  // A live mic level meter — the fix for a real, invisible failure mode: the
+  // browser can hand back what looks like a perfectly normal, "live" audio
+  // track while the OS itself silently blocks the actual microphone hardware
+  // underneath it (a common Windows/Mac privacy-settings state, or the wrong
+  // input device selected) — no error, no permission prompt, just silence
+  // nobody finds out about until after a whole lesson's been recorded. This
+  // gives an immediate, undeniable answer to "is my mic actually being heard
+  // right now" — moving means yes; flat means the problem is your OS/device
+  // setup, not this app, and points straight at what to go check.
+  function startMicMeter(onLevel) {
+    stopMicMeter();
+    const track = camStream ? camStream.getAudioTracks()[0] : null;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!track || !AudioContextCtor) return;
+    micAudioCtx = new AudioContextCtor();
+    const source = micAudioCtx.createMediaStreamSource(new MediaStream([track]));
+    micAnalyser = micAudioCtx.createAnalyser();
+    micAnalyser.fftSize = 512;
+    source.connect(micAnalyser);
+    const data = new Uint8Array(micAnalyser.frequencyBinCount);
+    const tick = () => {
+      micAnalyser.getByteTimeDomainData(data);
+      let sumSquares = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sumSquares += v * v;
+      }
+      onLevel(Math.sqrt(sumSquares / data.length));
+      micMeterRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  function stopMicMeter() {
+    if (micMeterRaf) cancelAnimationFrame(micMeterRaf);
+    micMeterRaf = null;
+    micAnalyser = null;
+    if (micAudioCtx) {
+      micAudioCtx.close().catch(() => {});
+      micAudioCtx = null;
+    }
+  }
+
   // Device labels only populate after permission has been granted at least
   // once, so this is only useful to call after requestCamera() has succeeded.
   async function listDevices() {
@@ -85,6 +132,7 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
   }
 
   function stopCamera() {
+    stopMicMeter();
     if (camStream) camStream.getTracks().forEach((t) => t.stop());
     camStream = null;
   }
@@ -261,6 +309,8 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
     listDevices,
     stopCamera,
     setCameraEnabled,
+    startMicMeter,
+    stopMicMeter,
     setLayout,
     start,
     pause,
