@@ -50,6 +50,25 @@ document.addEventListener("DOMContentLoaded", () => {
     if (confirm("Clear the whole whiteboard?")) wb.clearBoard();
   });
   document.getElementById("pen-size").addEventListener("input", (e) => wb.setPenWidth(Number(e.target.value)));
+  document.getElementById("text-size").addEventListener("input", (e) => wb.setTextSize(Number(e.target.value)));
+
+  // The board scrolls rather than running out of room: the buttons move a
+  // fixed step, the mouse wheel pans by however much was scrolled — both go
+  // through the same clamped panBy, so neither can scroll above the top.
+  const SCROLL_STEP = 120;
+  document.getElementById("btn-scroll-up").addEventListener("click", () => wb.panBy(SCROLL_STEP));
+  document.getElementById("btn-scroll-down").addEventListener("click", () => wb.panBy(-SCROLL_STEP));
+  // Bound to the stage wrapper, not the whiteboard canvas element itself —
+  // Fabric stacks its own interactive "upper canvas" on top of the one we
+  // passed in, which is what actually receives pointer/wheel events.
+  stageEl.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      wb.panBy(-e.deltaY);
+    },
+    { passive: false }
+  );
 
   const swatchesEl = document.getElementById("swatches");
   wb.PALETTE.forEach((hex, i) => {

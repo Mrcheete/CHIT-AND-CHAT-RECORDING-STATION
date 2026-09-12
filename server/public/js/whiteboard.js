@@ -77,13 +77,26 @@ function createWhiteboard(canvasEl) {
     canvas.freeDrawingBrush.width = px;
   }
 
+  // Same pattern as setPenColor: resizes whatever text box is selected right
+  // now, so a size picked wrong at typing time can still be fixed afterwards.
+  // Always remembers the size too (not just when nothing is selected), so
+  // the next new text box carries over whatever size was last dialled in.
+  function setTextSize(px) {
+    canvas._lastTextSize = px;
+    const active = canvas.getActiveObject();
+    if (active && active.type === "textbox") {
+      active.set("fontSize", px);
+      canvas.requestRenderAll();
+    }
+  }
+
   function addText(text = "Type here...") {
     canvas.isDrawingMode = false;
     const t = new fabric.Textbox(text, {
       left: 80,
       top: 80,
       width: 260,
-      fontSize: 28,
+      fontSize: canvas._lastTextSize || 28,
       fill: canvas._lastPenColor || "#1a1a2e",
       fontFamily: "Inter, sans-serif",
       editable: true,
@@ -143,12 +156,26 @@ function createWhiteboard(canvasEl) {
     canvas.renderAll();
   }
 
+  // The board itself is taller than what's ever visible at once — running
+  // out of room means scrolling down to reveal fresh blank space below, not
+  // running out of board. Scrolling back up is clamped at the board's
+  // original top (dy > 0 here); there's no ceiling on scrolling down.
+  function panBy(dy) {
+    const vpt = canvas.viewportTransform;
+    let nextY = vpt[5] + dy;
+    if (nextY > 0) nextY = 0;
+    const delta = nextY - vpt[5];
+    if (delta === 0) return;
+    canvas.relativePan(new fabric.Point(0, delta));
+  }
+
   return {
     canvas,
     PALETTE,
     setTool,
     setPenColor,
     setPenWidth,
+    setTextSize,
     addText,
     addImage,
     deleteSelected,
@@ -156,6 +183,7 @@ function createWhiteboard(canvasEl) {
     undo,
     redo,
     resize,
+    panBy,
   };
 }
 
