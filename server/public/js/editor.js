@@ -174,9 +174,25 @@ async function loadRecordingIntoEditor() {
   $("editor-subtitle").textContent = `Editing "${currentRecording.title}"`;
   $("preview").src = currentRecording.url;
   $("preview").addEventListener("timeupdate", () => {
-    const duration = $("preview").duration;
-    $("time-readout").textContent = `${fmtTime($("preview").currentTime)} / ${fmtTime(duration)}`;
-    if (duration) $("timeline-playhead").style.left = `${($("preview").currentTime / duration) * 100}%`;
+    const preview = $("preview");
+    const duration = preview.duration;
+    $("time-readout").textContent = `${fmtTime(preview.currentTime)} / ${fmtTime(duration)}`;
+    if (duration) $("timeline-playhead").style.left = `${(preview.currentTime / duration) * 100}%`;
+
+    // Only while actually playing — paused, a scrub into a cut is someone
+    // deliberately checking or adjusting exactly that cut, not something to
+    // jump them out of. Playing, it previews the edited result: landing
+    // inside a cut (including right at the start, from the first frame)
+    // hops straight to what comes after it, same as the real render would.
+    if (!preview.paused && duration && cuts.length) {
+      const kept = keepSegments(duration, cuts);
+      const t = preview.currentTime;
+      if (!kept.some(([s, e]) => t >= s && t < e)) {
+        const next = kept.find(([s]) => s > t);
+        if (next) preview.currentTime = next[0];
+        else preview.pause();
+      }
+    }
   });
   $("preview").addEventListener("loadedmetadata", () => renderTimeline());
   chapters = currentRecording.chapters || [];
@@ -433,6 +449,44 @@ async function toggleVoiceoverRecording() {
   btn.classList.add("btn-danger");
 }
 
+// Lets the script be read while narrating a voice-over, same as the
+// Studio's recording teleprompter — paste/upload a script, play/pause it
+// (button, or Space while not typing), and adjust its scroll speed live.
+function setupVoiceoverTeleprompter() {
+  const tp = createTeleprompter({ panelEl: $("vo-script-panel"), textEl: $("vo-script-text") });
+  $("vo-script-paste").addEventListener("input", (e) => tp.setScript(e.target.value));
+  $("vo-script-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.name.endsWith(".pdf")) await tp.loadPdfFile(file);
+    else await tp.loadTxtFile(file);
+  });
+  $("vo-script-font").addEventListener("input", (e) => tp.setFontSize(Number(e.target.value)));
+
+  const btn = $("btn-vo-autoscroll");
+  const speedSlider = $("vo-script-speed");
+  let on = false;
+  let speed = Number(speedSlider.value);
+
+  function toggle() {
+    on = !on;
+    tp.setAutoScroll(on, speed);
+    btn.textContent = on ? "⏸ Pause script" : "▶ Play script";
+  }
+  btn.addEventListener("click", toggle);
+  speedSlider.addEventListener("input", (e) => {
+    speed = Number(e.target.value);
+    tp.setSpeed(speed);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.code !== "Space") return;
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "textarea" || tag === "input" || tag === "select") return;
+    e.preventDefault();
+    toggle();
+  });
+}
+
 async function cleanUpAudio() {
   const btn = $("btn-audio-cleanup");
   const status = $("audio-cleanup-status");
@@ -496,6 +550,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-add-cut").addEventListener("click", () => $("btn-mark-out").click());
 
   $("music-file").addEventListener("change", (e) => (musicFile = e.target.files[0] || null));
+  setupVoiceoverTeleprompter();
   $("btn-vo-record").addEventListener("click", toggleVoiceoverRecording);
   $("btn-vo-rerecord").addEventListener("click", toggleVoiceoverRecording);
   $("btn-vo-remove").addEventListener("click", removeVoiceover);

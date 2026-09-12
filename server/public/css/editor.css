@@ -71,3 +71,8 @@
 .vo-trim-fields { display: flex; gap: 8px; margin-top: 8px; }
 .vo-trim-fields .field { flex: 1; margin: 0; }
 .vo-trim-fields label { font-size: 0.75rem; }
+
+/* Sits inside a sidebar card, not studio's full-height layout, so it never
+   needs the sticky positioning .script-panel uses there. */
+.vo-teleprompter { position: static; max-height: none; margin-bottom: 10px; }
+.vo-teleprompter #vo-script-paste { width: 100%; }

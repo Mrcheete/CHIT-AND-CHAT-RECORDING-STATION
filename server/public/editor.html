@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chit & Chat — Editor</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/studio.css">
 <link rel="stylesheet" href="css/editor.css">
 </head>
 <body>
@@ -76,6 +77,27 @@
       <div class="card">
         <h3>🎙️ Voice-over</h3>
         <p class="script-note">Record narration separately, then mix it into this video's audio.</p>
+
+        <div class="script-panel vo-teleprompter" id="vo-script-panel" data-position="top">
+          <div class="script-controls">
+            <input type="file" id="vo-script-file" accept=".txt,.pdf" style="max-width:130px">
+            <button class="btn btn-sm btn-outline" id="btn-vo-autoscroll">▶ Play script</button>
+          </div>
+          <div class="script-controls">
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:0.85rem">
+              Speed
+              <input type="range" id="vo-script-speed" min="5" max="100" value="30" title="Scroll speed">
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:0.85rem">
+              Text size
+              <input type="range" id="vo-script-font" min="14" max="42" value="20" title="Font size">
+            </label>
+          </div>
+          <textarea id="vo-script-paste" rows="2" placeholder="Paste the script to read while recording…"></textarea>
+          <div class="script-text" id="vo-script-text" style="max-height:140px">Your script will appear here — upload a .txt/.pdf or paste text above.</div>
+          <p class="script-note">Tap the button (or press Space, while not typing above) to pause and resume right where it stopped.</p>
+        </div>
+
         <button class="btn btn-outline btn-sm" id="btn-vo-record">● Record voice-over</button>
         <audio class="vo-preview" id="vo-preview" controls style="display:none"></audio>
         <div class="vo-trim-fields" id="vo-trim-fields" style="display:none">
@@ -135,10 +157,13 @@
   </div>
 
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
   <script src="js/auth.js"></script>
   <script src="js/brand.js"></script>
   <script src="js/api.js"></script>
   <script src="js/db.js"></script>
+  <script src="js/teleprompter.js"></script>
   <script src="js/editor.js"></script>
 </body>
 </html>
