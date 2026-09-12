@@ -42,6 +42,7 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
   let elapsedBeforePause = 0;
   let layout = "pip-bottom-right"; // pip-bottom-right | pip-bottom-left | whiteboard-only | camera-only | side-by-side
   let state = "idle"; // idle | recording | paused
+  let cameraEnabled = true;
 
   const listeners = { tick: [], statechange: [] };
   function on(evt, fn) { listeners[evt].push(fn); }
@@ -55,9 +56,22 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
       video: video ? { width: 640, height: 480, ...(videoDeviceId ? { deviceId: { exact: videoDeviceId } } : {}) } : false,
       audio: audio ? (audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true) : false,
     });
+    // A fresh getUserMedia call always comes back with video on — reapply
+    // whatever the camera toggle was last set to (e.g. switching cameras
+    // while the camera was off shouldn't silently turn it back on).
+    camStream.getVideoTracks().forEach((t) => (t.enabled = cameraEnabled));
     videoPreviewEl.srcObject = camStream;
     await videoPreviewEl.play();
     return camStream;
+  }
+
+  // Toggles the camera on/off independently of the mic: disabling a track
+  // (rather than stopping it or re-requesting the stream) mutes just that
+  // track while the underlying stream — and the other track on it, i.e. the
+  // mic — keeps running completely uninterrupted, even mid-recording.
+  function setCameraEnabled(on) {
+    cameraEnabled = on;
+    if (camStream) camStream.getVideoTracks().forEach((t) => (t.enabled = on));
   }
 
   // Device labels only populate after permission has been granted at least
@@ -89,7 +103,7 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
       outputCtx.drawImage(whiteboardCanvasEl, 0, 0, w, h);
     }
 
-    const hasVideo = videoPreviewEl.readyState >= 2 && camStream;
+    const hasVideo = cameraEnabled && videoPreviewEl.readyState >= 2 && camStream;
     if (hasVideo && layout === "camera-only") {
       outputCtx.drawImage(videoPreviewEl, 0, 0, w, h);
     } else if (hasVideo && layout === "side-by-side") {
@@ -246,6 +260,7 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
     requestCamera,
     listDevices,
     stopCamera,
+    setCameraEnabled,
     setLayout,
     start,
     pause,
@@ -254,6 +269,7 @@ function createRecorder({ whiteboardCanvasEl, outputCanvasEl, videoPreviewEl }) 
     discard,
     on,
     get state() { return state; },
+    get cameraEnabled() { return cameraEnabled; },
     elapsedSeconds,
   };
 }

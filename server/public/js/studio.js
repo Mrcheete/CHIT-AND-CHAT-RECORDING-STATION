@@ -154,16 +154,31 @@ document.addEventListener("DOMContentLoaded", () => {
     micSelect.style.display = mics.length > 1 ? "inline-block" : "none";
   }
 
+  const btnToggleCamera = document.getElementById("btn-toggle-camera");
+  function renderCameraToggle() {
+    btnToggleCamera.textContent = rec.cameraEnabled ? "📷 Camera: On" : "📷 Camera: Off";
+    camPreviewEl.classList.toggle("cam-preview-off", !rec.cameraEnabled);
+  }
+
   document.getElementById("btn-enable-cam").addEventListener("click", async (e) => {
     try {
       await rec.requestCamera();
       e.target.textContent = "Camera ready ✓";
       e.target.disabled = true;
       document.getElementById("btn-record").disabled = false;
+      btnToggleCamera.disabled = false;
+      renderCameraToggle();
       await populateDeviceSelects();
     } catch (err) {
       CCBrand.toast("Couldn't access camera/mic: " + err.message);
     }
+  });
+  // Independent of the mic — this only disables the video track, so the
+  // same underlying stream keeps the mic recording without interruption,
+  // and it can be flipped anytime, including mid-recording.
+  btnToggleCamera.addEventListener("click", () => {
+    rec.setCameraEnabled(!rec.cameraEnabled);
+    renderCameraToggle();
   });
   camSelect.addEventListener("change", async () => {
     try {

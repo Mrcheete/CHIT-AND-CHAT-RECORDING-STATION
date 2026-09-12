@@ -96,6 +96,10 @@
 .side-by-side #cam-preview { position: static; width: 50%; height: 100%; border-radius: 0; border: none; }
 .side-by-side .whiteboard-stage { display: flex; }
 .whiteboard-only #cam-preview { display: none; }
+/* Camera toggled off: hide the (otherwise black, since its track is just
+   disabled — not stopped, so the mic on the same stream keeps recording
+   uninterrupted) self-preview rather than show a dead black box. */
+#cam-preview.cam-preview-off { visibility: hidden; }
 
 /* ---------- Right / top teleprompter panel ---------- */
 .script-panel {
