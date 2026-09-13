@@ -48,7 +48,10 @@ function createWhiteboard(canvasEl) {
 
   const PALETTE = ["#1a1a2e", "#e63946", "#ff6b6b", "#ffd166", "#2a9d8f", "#4ecdc4", "#3a86ff", "#8338ec", "#ffffff"];
 
+  let currentTool = "pencil";
+
   function setTool(tool) {
+    currentTool = tool;
     canvas.isDrawingMode = tool === "pencil" || tool === "eraser";
     if (tool === "eraser") {
       canvas.freeDrawingBrush.color = "#ffffff";
@@ -58,6 +61,18 @@ function createWhiteboard(canvasEl) {
       canvas.freeDrawingBrush.color = canvas._lastPenColor || "#1a1a2e";
     }
   }
+
+  // With "text" selected, clicking empty board space drops a new text box
+  // right where you clicked (like Connect's whiteboard) instead of always at
+  // a fixed spot, and the tool stays selected afterward — so typing one line,
+  // clicking the next empty spot, and typing again never needs the toolbar
+  // button re-clicked in between. Clicking an EXISTING object instead (opt.target
+  // set) is left alone so Fabric's normal select/edit/drag still works on it.
+  canvas.on("mouse:down", (opt) => {
+    if (currentTool !== "text" || opt.target) return;
+    const pointer = canvas.getPointer(opt.e);
+    addText("Type here...", { left: pointer.x, top: pointer.y });
+  });
 
   // A colour swatch click recolours whatever text box is currently selected
   // (so you can fix a text's colour after placing it, not just at creation),
@@ -90,11 +105,11 @@ function createWhiteboard(canvasEl) {
     }
   }
 
-  function addText(text = "Type here...") {
+  function addText(text = "Type here...", { left = 80, top = 80 } = {}) {
     canvas.isDrawingMode = false;
     const t = new fabric.Textbox(text, {
-      left: 80,
-      top: 80,
+      left,
+      top,
       width: 260,
       fontSize: canvas._lastTextSize || 28,
       fill: canvas._lastPenColor || "#1a1a2e",

@@ -34,9 +34,12 @@ document.addEventListener("DOMContentLoaded", () => {
       wb.setTool(btn.dataset.tool);
     });
   });
+  // Selecting the tool (handled by the generic listener above, since this
+  // button also carries data-tool="text") is all that's needed now — click
+  // anywhere on the board to drop a text box exactly there, type, then click
+  // the next empty spot to start another one, all without reselecting this.
   document.getElementById("btn-add-text").addEventListener("click", () => {
-    wb.addText();
-    CCBrand.toast("Type your text, then click elsewhere on the board — you can then drag it into place.");
+    CCBrand.toast("Click anywhere on the board to start typing there — click another empty spot for the next one.");
   });
   document.getElementById("btn-add-image").addEventListener("click", () => document.getElementById("image-input").click());
   document.getElementById("image-input").addEventListener("change", (e) => {
