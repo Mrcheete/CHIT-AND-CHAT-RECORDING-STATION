@@ -12,8 +12,8 @@ if (typeof fabric !== "undefined" && !fabric.Object.prototype.controls.deleteCon
   fabric.Object.prototype.controls.deleteControl = new fabric.Control({
     x: 0.5,
     y: -0.5,
-    offsetX: 16,
-    offsetY: -16,
+    offsetX: 18,
+    offsetY: -30,
     cursorStyle: "pointer",
     mouseUpHandler: (_eventData, transform) => {
       const target = transform.target;
