@@ -1,12 +1,12 @@
 .studio-layout {
   display: grid;
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 64px 1fr 64px;
   gap: 16px;
   padding: 16px 20px 40px;
   align-items: start;
 }
-.studio-layout.with-script { grid-template-columns: 64px 1fr 300px; }
-.studio-layout[data-script-top="1"] { grid-template-columns: 64px 1fr; }
+.studio-layout.with-script { grid-template-columns: 64px 1fr 64px 300px; }
+.studio-layout[data-script-top="1"] { grid-template-columns: 64px 1fr 64px; }
 
 /* ---------- Left tool rail ---------- */
 .tool-rail {
