@@ -2,6 +2,47 @@
 // Supports: freehand pencil with colour/size, an eraser, editable/resizable
 // text boxes, image insertion, undo/redo, and a plain export canvas that
 // recorder.js composites into the outgoing video.
+// A small "✕" that appears on any selected object (text, shape, or image)
+// and deletes it on click — a safer, more obvious way to remove a specific
+// thing than drawing over it with the eraser, which only paints white pixels
+// on top and never actually removes the object underneath. Set once on the
+// shared prototype (Fabric convention), so it applies to every object type.
+if (typeof fabric !== "undefined" && !fabric.Object.prototype.controls.deleteControl) {
+  const DELETE_SIZE = 20;
+  fabric.Object.prototype.controls.deleteControl = new fabric.Control({
+    x: 0.5,
+    y: -0.5,
+    offsetX: 16,
+    offsetY: -16,
+    cursorStyle: "pointer",
+    mouseUpHandler: (_eventData, transform) => {
+      const target = transform.target;
+      const canvas = target.canvas;
+      canvas.remove(target);
+      canvas.requestRenderAll();
+      return true;
+    },
+    render: (ctx, left, top, _styleOverride, fabricObject) => {
+      ctx.save();
+      ctx.translate(left, top);
+      ctx.rotate(fabric.util.degreesToRadians(fabricObject.angle));
+      ctx.fillStyle = "#e63946";
+      ctx.beginPath();
+      ctx.arc(0, 0, DELETE_SIZE / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-4, -4);
+      ctx.lineTo(4, 4);
+      ctx.moveTo(4, -4);
+      ctx.lineTo(-4, 4);
+      ctx.stroke();
+      ctx.restore();
+    },
+  });
+}
+
 function createWhiteboard(canvasEl) {
   const canvas = new fabric.Canvas(canvasEl, {
     isDrawingMode: true,
@@ -62,16 +103,97 @@ function createWhiteboard(canvasEl) {
     }
   }
 
-  // With "text" selected, clicking empty board space drops a new text box
-  // right where you clicked (like Connect's whiteboard) instead of always at
-  // a fixed spot, and the tool stays selected afterward — so typing one line,
-  // clicking the next empty spot, and typing again never needs the toolbar
-  // button re-clicked in between. Clicking an EXISTING object instead (opt.target
-  // set) is left alone so Fabric's normal select/edit/drag still works on it.
+  // Builds a shape spanning two drag points, fresh each call — simplest way
+  // to keep an arrow's line+head geometry correct while dragging without
+  // hand-rolling Fabric Path point mutation, at the cost of a remove+recreate
+  // per mouse-move (cheap; bounded by pointer-move frequency, not a render
+  // loop).
+  function buildShape(tool, x1, y1, x2, y2) {
+    const stroke = canvas._lastPenColor || "#1a1a2e";
+    const strokeWidth = Math.max(2, Math.min(canvas._lastPenWidth || 4, 10));
+    const common = { stroke, strokeWidth, fill: "transparent", selectable: true, hasControls: true };
+    if (tool === "circle") {
+      const r = Math.hypot(x2 - x1, y2 - y1);
+      return new fabric.Circle({ ...common, left: x1 - r, top: y1 - r, radius: r });
+    }
+    if (tool === "square") {
+      return new fabric.Rect({
+        ...common,
+        left: Math.min(x1, x2),
+        top: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      });
+    }
+    if (tool === "triangle") {
+      return new fabric.Triangle({
+        ...common,
+        left: Math.min(x1, x2),
+        top: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      });
+    }
+    if (tool === "arrow") {
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      const headLen = 18;
+      const headAngle = Math.PI / 7;
+      const hx1 = x2 - headLen * Math.cos(angle - headAngle);
+      const hy1 = y2 - headLen * Math.sin(angle - headAngle);
+      const hx2 = x2 - headLen * Math.cos(angle + headAngle);
+      const hy2 = y2 - headLen * Math.sin(angle + headAngle);
+      const d = `M ${x1} ${y1} L ${x2} ${y2} M ${hx1} ${hy1} L ${x2} ${y2} L ${hx2} ${hy2}`;
+      return new fabric.Path(d, { stroke, strokeWidth, fill: "", selectable: true, hasControls: true });
+    }
+    return null;
+  }
+
+  const SHAPE_TOOLS = ["circle", "square", "triangle", "arrow"];
+  let shapeStart = null;
+  let shapeObj = null;
+
   canvas.on("mouse:down", (opt) => {
-    if (currentTool !== "text" || opt.target) return;
+    // Clicking an existing object is always left to Fabric's own
+    // select/edit/drag handling, whatever tool happens to be selected.
+    if (opt.target) return;
     const pointer = canvas.getPointer(opt.e);
-    addText("Type here...", { left: pointer.x, top: pointer.y });
+    // With "text" selected, clicking empty board space drops a new text box
+    // right where you clicked (like Connect's whiteboard) instead of always
+    // at a fixed spot, and the tool stays selected afterward — so typing one
+    // line, clicking the next empty spot, and typing again never needs the
+    // toolbar button re-clicked in between.
+    if (currentTool === "text") {
+      addText("Type here...", { left: pointer.x, top: pointer.y });
+      return;
+    }
+    if (SHAPE_TOOLS.includes(currentTool)) {
+      shapeStart = pointer;
+      suppressHistory = true; // only the finished shape belongs in undo history, not every in-progress frame
+      shapeObj = buildShape(currentTool, pointer.x, pointer.y, pointer.x, pointer.y);
+      canvas.add(shapeObj);
+    }
+  });
+  canvas.on("mouse:move", (opt) => {
+    if (!shapeObj || !shapeStart) return;
+    const pointer = canvas.getPointer(opt.e);
+    canvas.remove(shapeObj);
+    shapeObj = buildShape(currentTool, shapeStart.x, shapeStart.y, pointer.x, pointer.y);
+    canvas.add(shapeObj);
+  });
+  canvas.on("mouse:up", () => {
+    if (!shapeObj) return;
+    suppressHistory = false;
+    const w = shapeObj.width || shapeObj.radius * 2 || 0;
+    const h = shapeObj.height || shapeObj.radius * 2 || 0;
+    if (w < 5 && h < 5) {
+      // A stray click/tiny drag rather than a real shape — drop it silently.
+      canvas.remove(shapeObj);
+    } else {
+      canvas.setActiveObject(shapeObj);
+      snapshot();
+    }
+    shapeObj = null;
+    shapeStart = null;
   });
 
   // A colour swatch click recolours whatever text box is currently selected
